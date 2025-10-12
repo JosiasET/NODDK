@@ -1,0 +1,207 @@
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Scanner;
+import java.util.regex.*;
+
+public class Sintaxis_Noddk_GUI {
+
+    // Expresiones regulares
+    private static final Pattern IDENTIFICADOR_VALIDO = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*$");
+    private static final Pattern NUMERO = Pattern.compile("^[0-9]+(\\.[0-9]+)?$");
+    private static final Pattern CADENA = Pattern.compile("^\"(.*?)\"$");
+    private static final Pattern CARACTER = Pattern.compile("^'.'$");
+    private static final Pattern BOOLEANO = Pattern.compile("^(true|false)$");
+    private static final Pattern DECLARACION = Pattern.compile("^([a-zA-Z_][a-zA-Z0-9_])\\s=\\s*(.+);?$");
+    private static final Pattern PRINT = Pattern.compile("^print\\((f?)(\"(.*?)\")\\);?$");
+    private static final Pattern VARIABLE_INTERPOLACION = Pattern.compile("\\{(\\w+)\\}");
+
+    // Tabla de símbolos para almacenar variables
+    private static final Map<String, Object> variables = new HashMap<>();
+
+    public static void main(String[] args) {
+        // Mostrar interfaz gráfica
+        SwingUtilities.invokeLater(() -> crearGUI());
+
+        // También mantener la interfaz de consola si lo prefieres
+        modoConsola();
+    }
+
+    private static void modoConsola() {
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("Escribe declaraciones de variables según la gramática Noddk.");
+        System.out.println("Escribe 'salir' para finalizar.\n");
+
+        while (true) {
+            System.out.print(">> ");
+            String linea = scanner.nextLine().trim();
+
+            if (linea.equalsIgnoreCase("salir")) {
+                System.out.println("👋 Programa finalizado.");
+                break;
+            }
+
+            procesarLinea(linea, true);
+        }
+
+        scanner.close();
+    }
+
+    private static void crearGUI() {
+        JFrame frame = new JFrame("Noddk Interpreter");
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setSize(600, 400);
+
+        JPanel panel = new JPanel(new BorderLayout());
+
+        JTextArea inputArea = new JTextArea();
+        inputArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        JScrollPane inputScroll = new JScrollPane(inputArea);
+
+        JTextArea outputArea = new JTextArea();
+        outputArea.setEditable(false);
+        outputArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        JScrollPane outputScroll = new JScrollPane(outputArea);
+
+        JButton runButton = new JButton("Ejecutar");
+        runButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                String[] lineas = inputArea.getText().split("\\n");
+                outputArea.setText("");
+
+                for (String linea : lineas) {
+                    if (!linea.trim().isEmpty()) {
+                        String resultado = procesarLinea(linea.trim(), false);
+                        if (resultado != null) {
+                            outputArea.append(resultado + "\n");
+                        }
+                    }
+                }
+            }
+        });
+
+        panel.add(inputScroll, BorderLayout.CENTER);
+        panel.add(outputScroll, BorderLayout.SOUTH);
+        panel.add(runButton, BorderLayout.EAST);
+
+        frame.add(panel);
+        frame.setVisible(true);
+    }
+
+    private static String procesarLinea(String linea, boolean modoConsola) {
+        Matcher matcherPrint = PRINT.matcher(linea);
+
+        if (matcherPrint.matches()) {
+            String fPrefix = matcherPrint.group(1); // "f" o vacío
+            String contenidoComillas = matcherPrint.group(3); // contenido dentro de las comillas
+            String resultado = procesarPrint(contenidoComillas, !fPrefix.isEmpty());
+
+            if (modoConsola) {
+                System.out.println("📤 " + resultado);
+            }
+            return "📤 " + resultado;
+        } else if (validarDeclaracion(linea)) {
+            if (modoConsola) {
+                System.out.println("✅ " + linea + " -> Declaración válida.");
+            }
+            return "✅ " + linea + " -> Declaración válida.";
+        } else {
+            if (modoConsola) {
+                System.out.println("❌ " + linea + " -> Declaración inválida.");
+            }
+            return "❌ " + linea + " -> Declaración inválida.";
+        }
+    }
+
+    private static String procesarPrint(String contenido, boolean interpolacion) {
+        if (!interpolacion) {
+            return contenido; // Si no es f-string, devolver literal
+        }
+
+        // Procesar interpolación de variables
+        Matcher matcherVariables = VARIABLE_INTERPOLACION.matcher(contenido);
+        StringBuffer resultado = new StringBuffer();
+
+        while (matcherVariables.find()) {
+            String nombreVariable = matcherVariables.group(1);
+            Object valor = variables.get(nombreVariable);
+            matcherVariables.appendReplacement(resultado, valor != null ? valor.toString() : "null");
+        }
+        matcherVariables.appendTail(resultado);
+
+        return resultado.toString();
+    }
+
+    private static boolean validarDeclaracion(String linea) {
+        Matcher matcher = DECLARACION.matcher(linea);
+
+        if (matcher.matches()) {
+            String identificador = matcher.group(1);
+            String valorExpresion = matcher.group(2).trim();
+
+            // Quitar ; si está al final
+            if (valorExpresion.endsWith(";")) {
+                valorExpresion = valorExpresion.substring(0, valorExpresion.length() - 1).trim();
+            }
+
+            // Validar identificador
+            if (!IDENTIFICADOR_VALIDO.matcher(identificador).matches()) {
+                return false;
+            }
+
+            // Evaluar la expresión
+            Object valor = evaluarExpresion(valorExpresion);
+            if (valor != null) {
+                variables.put(identificador, valor);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static Object evaluarExpresion(String expresion) {
+        // Si es un literal simple
+        if (NUMERO.matcher(expresion).matches()) {
+            if (expresion.contains(".")) {
+                return Double.parseDouble(expresion);
+            } else {
+                return Integer.parseInt(expresion);
+            }
+        } else if (CADENA.matcher(expresion).matches()) {
+            return expresion.substring(1, expresion.length() - 1);
+        } else if (CARACTER.matcher(expresion).matches()) {
+            return expresion.charAt(1);
+        } else if (BOOLEANO.matcher(expresion).matches()) {
+            return Boolean.parseBoolean(expresion);
+        }
+
+        // Si es una operación aritmética
+        try {
+            // Reemplazar variables por sus valores
+            String expresionEvaluada = expresion;
+            for (Map.Entry<String, Object> entry : variables.entrySet()) {
+                expresionEvaluada = expresionEvaluada.replaceAll("\\b" + entry.getKey() + "\\b",
+                        entry.getValue().toString());
+            }
+
+            // Evaluar la expresión
+            return evaluarAritmetica(expresionEvaluada);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Object evaluarAritmetica(String expresion) {
+        try {
+            // Usar el motor de JavaScript para evaluar expresiones aritméticas
+            return new javax.script.ScriptEngineManager().getEngineByName("js").eval(expresion);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+}
