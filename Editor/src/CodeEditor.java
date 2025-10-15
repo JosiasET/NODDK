@@ -8,6 +8,8 @@ import javax.swing.event.*;
 import javax.swing.filechooser.FileSystemView;
 import javax.swing.tree.*;
 
+import java.util.List;
+
 import editor.SintaxisNoddk;
 
 public class CodeEditor {
@@ -109,29 +111,44 @@ public class CodeEditor {
                 if (view instanceof JTextPane) {
                     JTextPane currentPane = (JTextPane) view;
                     String codigo = currentPane.getText();
-                    String[] lineas = codigo.split("\\n");
-                    StringBuilder resultado = new StringBuilder();
                     
-                    for (int i = 0; i < lineas.length; i++) {
-                        String linea = lineas[i].trim();
-                        if (!linea.isEmpty()) {
-                            String resultadoLinea = SintaxisNoddk.procesarLinea(linea, i + 1).trim();
-                            if (!resultadoLinea.isEmpty()) {
-                                resultado.append(resultadoLinea).append("\n");
+                    try {
+                        // Análisis léxico
+                        Lexer lexer = new Lexer(codigo);
+                        List<Token> tokens = lexer.tokenize();
+                        
+                        // Análisis sintáctico y semántico
+                        Parser parser = new Parser(tokens);
+                        String resultado = parser.parse();
+                        
+                        if (consoleTextPane == null) {
+                            consoleTextPane = new JTextPane();
+                            consoleTextPane.setEditable(false);
+                            consoleTextPane.setFont(FUENTE_CONSOLA);
+                            consoleTextPane.setBackground(COLOR_LINE_NUMBERS);
+                            consoleTextPane.setForeground(COLOR_ACENTO);
+                        }
+                        
+                        // Mostrar tokens y resultado
+                        StringBuilder output = new StringBuilder();
+                        output.append("🔍 TOKENS ENCONTRADOS:\n");
+                        output.append("=".repeat(50)).append("\n");
+                        for (Token token : tokens) {
+                            if (token.type != TokenType.EOF) {
+                                output.append(token).append("\n");
                             }
                         }
+                        output.append("\n📊 RESULTADO DEL ANÁLISIS:\n");
+                        output.append("=".repeat(50)).append("\n");
+                        output.append(resultado);
+                        
+                        consoleTextPane.setText(output.toString());
+                        toggleConsola();
+                        
+                    } catch (Exception ex) {
+                        consoleTextPane.setText("❌ Error durante el análisis:\n" + ex.getMessage());
+                        toggleConsola();
                     }
-                    
-                    if (consoleTextPane == null) {
-                        consoleTextPane = new JTextPane();
-                        consoleTextPane.setEditable(false);
-                        consoleTextPane.setFont(FUENTE_CONSOLA);
-                        consoleTextPane.setBackground(COLOR_LINE_NUMBERS);
-                        consoleTextPane.setForeground(COLOR_ACENTO);
-                    }
-                    
-                    consoleTextPane.setText(resultado.toString());
-                    toggleConsola();
                 }
             }
         });
