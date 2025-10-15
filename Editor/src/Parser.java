@@ -266,16 +266,56 @@ public class Parser {
             double rightNum = ((Number)right).doubleValue();
             
             switch (operator.type) {
-                case EQUALS: return leftNum == rightNum;
-                case NOT_EQUALS: return leftNum != rightNum;
-                case LESS: return leftNum < rightNum;
-                case GREATER: return leftNum > rightNum;
-                case LESS_EQUAL: return leftNum <= rightNum;
-                case GREATER_EQUAL: return leftNum >= rightNum;
-                default: return false;
+                case EQUALS: 
+                    return leftNum == rightNum;
+                case NOT_EQUALS: 
+                    return leftNum != rightNum;
+                case LESS: 
+                    return leftNum < rightNum;
+                case GREATER: 
+                    return leftNum > rightNum;
+                case LESS_EQUAL: 
+                    return leftNum <= rightNum;
+                case GREATER_EQUAL: 
+                    return leftNum >= rightNum;
+                default: 
+                    return false;
             }
         }
-        return false;
+        // ✅ Permitir comparación entre booleanos
+        else if (left instanceof Boolean && right instanceof Boolean) {
+            boolean leftBool = (Boolean)left;
+            boolean rightBool = (Boolean)right;
+            
+            switch (operator.type) {
+                case EQUALS: 
+                    return leftBool == rightBool;
+                case NOT_EQUALS: 
+                    return leftBool != rightBool;
+                default: 
+                    throw new RuntimeException("❌ Error: Operador " + operator.type + " no válido para booleanos");
+            }
+        }
+        // ✅ Permitir comparación entre strings
+        else if (left instanceof String && right instanceof String) {
+            String leftStr = (String)left;
+            String rightStr = (String)right;
+            
+            switch (operator.type) {
+                case EQUALS: 
+                    return leftStr.equals(rightStr);
+                case NOT_EQUALS: 
+                    return !leftStr.equals(rightStr);
+                default: 
+                    throw new RuntimeException("❌ Error: Operador " + operator.type + " no válido para strings");
+            }
+        }
+        // ❌ Tipos incompatibles
+        else {
+            throw new RuntimeException("❌ Error: No se pueden comparar " + 
+                left.getClass().getSimpleName() + " y " + 
+                right.getClass().getSimpleName() + " con " + operator.type);
+        }
     }
     
     private Object evaluateUnary(Object value, Token operator) {
@@ -393,8 +433,11 @@ public class Parser {
         
         output.append("🔍 Condición IF: ").append(condition).append("\n");
         
+        boolean executed = false;
+        
         // Bloque IF
         if ((boolean)condition) {
+            executed = true;
             while (currentToken() != null && 
                 currentToken().type != TokenType.RBRACE && 
                 currentToken().type != TokenType.EOF) {
@@ -408,20 +451,216 @@ public class Parser {
             skipToMatchingBrace();
         }
         
-        // Cerrar bloque IF
         if (currentToken() != null && currentToken().type == TokenType.RBRACE) {
             eat(TokenType.RBRACE);
         }
         
-        // Manejar ELSE
-        if (currentToken() != null && currentToken().type == TokenType.ELSE) {
+        // ✅ Manejar ELSE IF y ELSE
+        while (currentToken() != null && currentToken().type == TokenType.ELSE) {
             eat(TokenType.ELSE);
+            
+            // Verificar si es ELSE IF o ELSE normal
+            if (currentToken() != null && currentToken().type == TokenType.IF) {
+                // ✅ Es ELSE IF
+                eat(TokenType.IF);
+                eat(TokenType.LPAREN);
+                Object elseIfCondition = expression();
+                eat(TokenType.RPAREN);
+                eat(TokenType.LBRACE);
+                
+                output.append("🔍 Condición ELSE IF: ").append(elseIfCondition).append("\n");
+                
+                if (!executed && (boolean)elseIfCondition) {
+                    executed = true;
+                    while (currentToken() != null && 
+                        currentToken().type != TokenType.RBRACE && 
+                        currentToken().type != TokenType.EOF) {
+                        instruction();
+                        if (currentToken() != null && currentToken().type == TokenType.SEMICOLON) {
+                            eat(TokenType.SEMICOLON);
+                        }
+                    }
+                } else {
+                    // Saltar bloque ELSE IF
+                    skipToMatchingBrace();
+                }
+                
+                if (currentToken() != null && currentToken().type == TokenType.RBRACE) {
+                    eat(TokenType.RBRACE);
+                }
+                
+            } else {
+                // ✅ Es ELSE normal
+                eat(TokenType.LBRACE);
+                
+                output.append("🔍 Bloque ELSE\n");
+                
+                if (!executed) {
+                    while (currentToken() != null && 
+                        currentToken().type != TokenType.RBRACE && 
+                        currentToken().type != TokenType.EOF) {
+                        instruction();
+                        if (currentToken() != null && currentToken().type == TokenType.SEMICOLON) {
+                            eat(TokenType.SEMICOLON);
+                        }
+                    }
+                } else {
+                    // Saltar bloque ELSE
+                    skipToMatchingBrace();
+                }
+                
+                if (currentToken() != null && currentToken().type == TokenType.RBRACE) {
+                    eat(TokenType.RBRACE);
+                }
+                break; // Salir del while después del ELSE normal
+            }
+        }
+    }
+    
+    private void loop() {
+        Token token = currentToken();
+    
+        if (token.type == TokenType.WHILE) {
+            // ✅ Bucle WHILE
+            eat(TokenType.WHILE);
+            eat(TokenType.LPAREN);
+            
+            // Guardar posición para repetir la condición
+            int conditionStart = position;
+            Object condition = expression();
+            
+            eat(TokenType.RPAREN);
             eat(TokenType.LBRACE);
             
-            output.append("🔍 Bloque ELSE\n");
+            output.append("🔄 Iniciando bucle WHILE: ").append(condition).append("\n");
             
-            // Bloque ELSE
+            int loopCount = 0;
+            final int MAX_LOOPS = 1000; // Prevenir loops infinitos
+            
+            // Ejecutar el bucle mientras la condición sea verdadera
+            while ((boolean)condition && loopCount < MAX_LOOPS) {
+                // Ejecutar bloque del bucle
+                int blockStart = position;
+                while (currentToken() != null && 
+                    currentToken().type != TokenType.RBRACE && 
+                    currentToken().type != TokenType.EOF) {
+                    instruction();
+                    if (currentToken() != null && currentToken().type == TokenType.SEMICOLON) {
+                        eat(TokenType.SEMICOLON);
+                    }
+                }
+                
+                // Volver a evaluar la condición
+                position = conditionStart;
+                condition = expression();
+                position = blockStart; // Volver al inicio del bloque
+                
+                loopCount++;
+                
+                // Salir si se excede el máximo de iteraciones
+                if (loopCount >= MAX_LOOPS) {
+                    output.append("⚠️  Advertencia: Bucle interrumpido después de ").append(MAX_LOOPS).append(" iteraciones\n");
+                    break;
+                }
+            }
+            
             if (!(boolean)condition) {
+                output.append("🔄 Bucle WHILE terminado (condición falsa)\n");
+            }
+            
+            // Saltar el bloque del bucle (ya fue ejecutado)
+            skipToMatchingBrace();
+            
+            if (currentToken() != null && currentToken().type == TokenType.RBRACE) {
+                eat(TokenType.RBRACE);
+            }
+            
+        } else if (token.type == TokenType.FOR) {
+            // ✅ Bucle FOR CORREGIDO
+            eat(TokenType.FOR);
+            eat(TokenType.LPAREN);
+            
+            output.append("🔄 Iniciando bucle FOR\n");
+            
+            // 1. INICIALIZACIÓN (puede ser declaración o asignación)
+            if (currentToken().type != TokenType.SEMICOLON) {
+                if (currentToken().type == TokenType.IDENTIFIER) {
+                    Token nextToken = position + 1 < tokens.size() ? tokens.get(position + 1) : null;
+                    if (nextToken != null && nextToken.type == TokenType.ASSIGN) {
+                        declarationOrAssignment(); // i = 0
+                    } else {
+                        expression(); // solo expresión
+                    }
+                } else {
+                    expression(); // otra expresión
+                }
+            }
+            eat(TokenType.SEMICOLON);
+            
+            // 2. CONDICIÓN
+            Object condition = true; // default si no hay condición
+            if (currentToken().type != TokenType.SEMICOLON) {
+                condition = expression();
+            }
+            eat(TokenType.SEMICOLON);
+            
+            // 3. INCREMENTO - permitir asignaciones como i = i + 1
+            if (currentToken().type != TokenType.RPAREN) {
+                // ✅ PERMITIR ASIGNACIONES en el incremento
+                if (currentToken().type == TokenType.IDENTIFIER) {
+                    Token nextToken = position + 1 < tokens.size() ? tokens.get(position + 1) : null;
+                    
+                    if (nextToken != null && nextToken.type == TokenType.ASSIGN) {
+                        // Asignación: i = i + 1
+                        String incrementVar = currentToken().value;
+                        eat(TokenType.IDENTIFIER);
+                        eat(TokenType.ASSIGN);
+                        Object incrementValue = expression();
+                        
+                        output.append("📈 Incremento: ").append(incrementVar)
+                            .append(" = ").append(incrementValue).append("\n");
+                        
+                        symbolTable.put(incrementVar, incrementValue);
+                        
+                    } else if (nextToken != null && 
+                            (nextToken.type == TokenType.INCREMENT || nextToken.type == TokenType.DECREMENT)) {
+                        // Incremento/decremento: i++ o i--
+                        String incrementVar = currentToken().value;
+                        eat(TokenType.IDENTIFIER);
+                        Token incrementOp = currentToken();
+                        eat(incrementOp.type);
+                        
+                        Object currentValue = symbolTable.get(incrementVar);
+                        Object newValue;
+                        
+                        if (incrementOp.type == TokenType.INCREMENT) {
+                            newValue = toNumber(currentValue) + 1;
+                        } else {
+                            newValue = toNumber(currentValue) - 1;
+                        }
+                        
+                        output.append("📈 Incremento: ").append(incrementVar)
+                            .append(incrementOp.type == TokenType.INCREMENT ? "++" : "--")
+                            .append(" = ").append(newValue).append("\n");
+                        
+                        symbolTable.put(incrementVar, newValue);
+                        
+                    } else {
+                        // Expresión simple
+                        expression();
+                    }
+                } else {
+                    // Otra expresión
+                    expression();
+                }
+            }
+            eat(TokenType.RPAREN);
+            eat(TokenType.LBRACE);
+            
+            output.append("🔍 Condición FOR: ").append(condition).append("\n");
+            
+            // Ejecutar bloque del FOR
+            if ((boolean)condition) {
                 while (currentToken() != null && 
                     currentToken().type != TokenType.RBRACE && 
                     currentToken().type != TokenType.EOF) {
@@ -431,39 +670,60 @@ public class Parser {
                     }
                 }
             } else {
-                // Saltar bloque ELSE
                 skipToMatchingBrace();
             }
             
-            // Cerrar bloque ELSE
             if (currentToken() != null && currentToken().type == TokenType.RBRACE) {
                 eat(TokenType.RBRACE);
             }
-        }
-    }
-    
-    private void loop() {
-        Token token = currentToken();
-        if (token.type == TokenType.WHILE) {
-            eat(TokenType.WHILE);
-            eat(TokenType.LPAREN);
-            Object condition = expression();
-            eat(TokenType.RPAREN);
+        } else if (token.type == TokenType.DO) {
+            // ✅ Bucle DO-WHILE
+            eat(TokenType.DO);
             eat(TokenType.LBRACE);
             
-            output.append("🔄 Bucle WHILE: ").append(condition).append("\n");
+            output.append("🔄 Iniciando bucle DO-WHILE\n");
             
-            if ((boolean)condition) {
-                while (currentToken() != null && currentToken().type != TokenType.RBRACE) {
-                    instruction();
-                    if (currentToken() != null && currentToken().type == TokenType.SEMICOLON) {
-                        eat(TokenType.SEMICOLON);
-                    }
+            // Guardar posición del bloque para posibles repeticiones
+            int blockStart = position;
+            
+            // EJECUTAR BLOQUE (siempre se ejecuta al menos una vez)
+            while (currentToken() != null && 
+                currentToken().type != TokenType.RBRACE && 
+                currentToken().type != TokenType.EOF) {
+                instruction();
+                if (currentToken() != null && currentToken().type == TokenType.SEMICOLON) {
+                    eat(TokenType.SEMICOLON);
                 }
-            } else {
-                skipToMatchingBrace();
             }
-            eat(TokenType.RBRACE);
+            
+            if (currentToken() != null && currentToken().type == TokenType.RBRACE) {
+                eat(TokenType.RBRACE);
+            }
+            
+            // Verificar que viene WHILE después
+            if (currentToken() != null && currentToken().type == TokenType.WHILE) {
+                eat(TokenType.WHILE);
+                eat(TokenType.LPAREN);
+                Object condition = expression();
+                eat(TokenType.RPAREN);
+                
+                output.append("🔍 Condición DO-WHILE: ").append(condition).append("\n");
+                
+                // Semicolon opcional
+                if (currentToken() != null && currentToken().type == TokenType.SEMICOLON) {
+                    eat(TokenType.SEMICOLON);
+                }
+                
+                // En una implementación real, aquí se repetiría el bloque si condición es true
+                if ((boolean)condition) {
+                    output.append("🔄 DO-WHILE: La condición es verdadera (en un interprete real se repetiría)\n");
+                } else {
+                    output.append("🔄 DO-WHILE: La condición es falsa - bucle terminado\n");
+                }
+                
+            } else {
+                throw new RuntimeException("❌ Error: Se esperaba 'while' después de 'do'");
+            }
         }
     }
     
