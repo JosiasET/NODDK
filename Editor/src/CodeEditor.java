@@ -10,8 +10,6 @@ import javax.swing.tree.*;
 
 import java.util.List;
 
-import editor.SintaxisNoddk;
-
 public class CodeEditor {
     private JTabbedPane tabbedPane;
     private JTextPane eastTextPane;
@@ -26,21 +24,17 @@ public class CodeEditor {
     private final FileSystemView fileSystemView = FileSystemView.getFileSystemView();
     private Map<File, JTextPane> openFiles = new HashMap<>();
     
-    // Método para procesar una línea de código
-    public String procesarLinea(String linea) {
-        return SintaxisNoddk.procesarLinea(linea);
-    }
-    private final Color COLOR_FONDO = new Color(135, 206, 250); // RGB de #87CEFA
-    private final Color COLOR_ACENTO = Color.GRAY;             // Gris
-    private final Color COLOR_TEXTO = Color.BLACK;             // Negro
-    private final Color COLOR_EDITOR = Color.WHITE;            // Fondo editor blanco
-    private final Color COLOR_LINE_NUMBERS = new Color(240, 240, 240); // Gris claro
+    private final Color COLOR_FONDO = new Color(135, 206, 250);
+    private final Color COLOR_ACENTO = Color.GRAY;
+    private final Color COLOR_TEXTO = Color.BLACK;
+    private final Color COLOR_EDITOR = Color.WHITE;
+    private final Color COLOR_LINE_NUMBERS = new Color(240, 240, 240);
     
     // Configuración de fuentes
-    private final Font FUENTE_CODIGO = new Font(Font.MONOSPACED, Font.PLAIN, 14); // Fallback seguro
+    private final Font FUENTE_CODIGO = new Font(Font.MONOSPACED, Font.PLAIN, 14);
     private final Font FUENTE_BOTONES = new Font("SansSerif", Font.BOLD, 14);
     private final Font FUENTE_ARBOL = new Font("SansSerif", Font.PLAIN, 13);
-    private final Font FUENTE_CONSOLA = new Font("JetBrains Mono", Font.PLAIN, 13);
+    private final Font FUENTE_CONSOLA = new Font(Font.MONOSPACED, Font.PLAIN, 13);
 
     public CodeEditor() {
         try {
@@ -113,32 +107,44 @@ public class CodeEditor {
                     String codigo = currentPane.getText();
                     
                     try {
-                        // Análisis léxico
+                        // ==================== ANÁLISIS LÉXICO ====================
                         Lexer lexer = new Lexer(codigo);
                         List<Token> tokens = lexer.tokenize();
                         
-                        // Análisis sintáctico y semántico
-                        Parser parser = new Parser(tokens);
+                        // ==================== ANÁLISIS SEMÁNTICO ====================
+                        SemanticAnalyzer semanticAnalyzer = new SemanticAnalyzer();
+                        boolean semanticValid = performSemanticAnalysis(tokens, semanticAnalyzer);
+                        
+                        // ==================== ANÁLISIS SINTÁCTICO ====================
+                        // CORREGIDO: Pasar el semanticAnalyzer al Parser para que no haga conversiones implícitas
+                        Parser parser = new Parser(tokens, semanticAnalyzer);
                         String resultado = parser.parse();
                         
                         if (consoleTextPane == null) {
                             consoleTextPane = new JTextPane();
                             consoleTextPane.setEditable(false);
                             consoleTextPane.setFont(FUENTE_CONSOLA);
-                            consoleTextPane.setBackground(COLOR_LINE_NUMBERS);
-                            consoleTextPane.setForeground(COLOR_ACENTO);
+                            consoleTextPane.setBackground(Color.BLACK);
+                            consoleTextPane.setForeground(Color.WHITE);
                         }
                         
-                        // Mostrar tokens y resultado
+                        // CORREGIDO: Mostrar resultados SEMÁNTICOS con errores reales
                         StringBuilder output = new StringBuilder();
-                        output.append("🔍 TOKENS ENCONTRADOS:\n");
+                        
+                        output.append("🔍 ANÁLISIS SEMÁNTICO:\n");
                         output.append("=".repeat(50)).append("\n");
-                        for (Token token : tokens) {
-                            if (token.type != TokenType.EOF) {
-                                output.append(token).append("\n");
-                            }
+                        
+                        if (semanticValid) {
+                            output.append("✅ ANÁLISIS SEMÁNTICO EXITOSO\n\n");
+                            output.append(semanticAnalyzer.getSymbolTableAsString());
+                        } else {
+                            // CORREGIDO: Usar el método real para obtener errores
+                            output.append(semanticAnalyzer.getErrorsAsString());
+                            output.append("\n");
+                            output.append(semanticAnalyzer.getSymbolTableAsString());
                         }
-                        output.append("\n📊 RESULTADO DEL ANÁLISIS:\n");
+                        
+                        output.append("\n📋 RESULTADO DEL PARSER:\n");
                         output.append("=".repeat(50)).append("\n");
                         output.append(resultado);
                         
@@ -146,29 +152,7 @@ public class CodeEditor {
                         toggleConsola();
                         
                     } catch (Exception ex) {
-                        String errorMessage = ex.getMessage();
-                        if (consoleTextPane == null) {
-                            consoleTextPane = new JTextPane();
-                            consoleTextPane.setEditable(false);
-                            consoleTextPane.setFont(FUENTE_CONSOLA);
-                            consoleTextPane.setBackground(COLOR_LINE_NUMBERS);
-                            consoleTextPane.setForeground(COLOR_ACENTO);
-                        }
-                        
-                        if (errorMessage != null && errorMessage.contains("línea")) {
-                            consoleTextPane.setText("❌ ERROR DE SINTAXIS:\n" + 
-                                                "=".repeat(50) + "\n" +
-                                                errorMessage + "\n\n" +
-                                                "💡 SUGERENCIA: Revise la línea indicada\n" +
-                                                "=".repeat(50));
-                        } else {
-                            consoleTextPane.setText("❌ Error durante el análisis:\n" + 
-                                                "=".repeat(50) + "\n" +
-                                                ex.getMessage() + "\n" +
-                                                "=".repeat(50));
-                        }
-                        toggleConsola();
-                        ex.printStackTrace();
+                        mostrarErrorEnConsola(ex);
                     }
                 }
             }
@@ -185,6 +169,200 @@ public class CodeEditor {
 
         guardarBtn.addActionListener(e -> guardarArchivoActual());
     }
+
+    /**
+     * CORREGIDO: Análisis semántico mejorado que detecta operaciones mixtas
+     */
+    private boolean performSemanticAnalysis(List<Token> tokens, SemanticAnalyzer semanticAnalyzer) {
+        try {
+            // Primera pasada: declaraciones de variables
+            for (int i = 0; i < tokens.size(); i++) {
+                Token token = tokens.get(i);
+                
+                // Detectar declaraciones de variables (patrón: identificador = expresión)
+                if (token.type == TokenType.IDENTIFIER && i + 2 < tokens.size()) {
+                    Token next = tokens.get(i + 1);
+                    Token nextNext = tokens.get(i + 2);
+                    
+                    if (next.type == TokenType.ASSIGN) {
+                        String identifier = token.value;
+                        Object value = extractValueFromToken(nextNext);
+                        
+                        if (value != null) {
+                            semanticAnalyzer.checkDeclaration(identifier, value, token.line);
+                        }
+                    }
+                }
+            }
+            
+            // Segunda pasada: uso de variables y operaciones
+            for (int i = 0; i < tokens.size(); i++) {
+                Token token = tokens.get(i);
+                
+                // Detectar uso de variables
+                if (token.type == TokenType.IDENTIFIER) {
+                    // Verificar acceso al scope y si está inicializada
+                    semanticAnalyzer.checkScopeAccess(token.value, token.line);
+                    semanticAnalyzer.checkVariableInitialized(token.value, token.line);
+                }
+                
+                // CORREGIDO: Detectar operaciones mixtas int + float
+                if (i > 0 && i < tokens.size() - 1 && isOperator(token.type)) {
+                    Token prev = tokens.get(i - 1);
+                    Token next = tokens.get(i + 1);
+                    
+                    // Obtener tipos de los operandos
+                    String leftType = getOperandType(prev, semanticAnalyzer);
+                    String rightType = getOperandType(next, semanticAnalyzer);
+                    String operator = getOperatorSymbol(token.type);
+                    
+                    // Si ambos operandos tienen tipos válidos y son diferentes
+                    if (leftType != null && rightType != null && !leftType.equals(rightType)) {
+                        // CORREGIDO: Usar el método correcto para reportar errores
+                        semanticAnalyzer.addError("Línea " + token.line + ": No se puede operar " + 
+                                leftType + " con " + rightType + " usando '" + operator + 
+                                "'. Los tipos deben ser exactamente iguales.");
+                    }
+                    
+                    // Verificación adicional usando el método del semanticAnalyzer
+                    Object leftValue = extractValueFromToken(prev);
+                    Object rightValue = extractValueFromToken(next);
+                    
+                    if (leftValue != null && rightValue != null) {
+                        // CORREGIDO: Usar el nuevo método que solo verifica tipos sin ejecutar
+                        semanticAnalyzer.checkBinaryOperationTypes(leftValue, rightValue, operator, token.line);
+                    }
+                }
+            }
+            
+            return !semanticAnalyzer.hasErrors();
+            
+        } catch (Exception e) {
+            System.err.println("Error en análisis semántico: " + e.getMessage());
+            semanticAnalyzer.addError("Error durante el análisis semántico: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * NUEVO: Obtener el tipo de un operando
+     */
+    private String getOperandType(Token token, SemanticAnalyzer semanticAnalyzer) {
+        if (token.type == TokenType.NUMBER) {
+            if (token.value.contains(".")) {
+                return "float";
+            } else {
+                return "int";
+            }
+        } else if (token.type == TokenType.STRING) {
+            return "String";
+        } else if (token.type == TokenType.TRUE || token.type == TokenType.FALSE) {
+            return "boolean";
+        } else if (token.type == TokenType.IDENTIFIER) {
+            // Buscar en la tabla de símbolos
+            if (semanticAnalyzer.variableExists(token.value)) {
+                SemanticAnalyzer.VariableInfo info = semanticAnalyzer.getVariableInfo(token.value);
+                return info.type;
+            }
+        }
+        return null;
+    }
+
+    private boolean isOperator(TokenType type) {
+        return type == TokenType.PLUS || type == TokenType.MINUS || 
+            type == TokenType.MULTIPLY || type == TokenType.DIVIDE ||
+            type == TokenType.MODULO || type == TokenType.EQUALS ||
+            type == TokenType.NOT_EQUALS || type == TokenType.LESS ||
+            type == TokenType.GREATER || type == TokenType.LESS_EQUAL ||
+            type == TokenType.GREATER_EQUAL || type == TokenType.AND ||
+            type == TokenType.OR;
+    }
+
+    private String getOperatorSymbol(TokenType type) {
+        switch (type) {
+            case PLUS: return "+";
+            case MINUS: return "-";
+            case MULTIPLY: return "*";
+            case DIVIDE: return "/";
+            case MODULO: return "%";
+            case EQUALS: return "==";
+            case NOT_EQUALS: return "!=";
+            case LESS: return "<";
+            case GREATER: return ">";
+            case LESS_EQUAL: return "<=";
+            case GREATER_EQUAL: return ">=";
+            case AND: return "&&";
+            case OR: return "||";
+            default: return "";
+        }
+    }
+
+    /**
+     * Extrae valores de los tokens literales
+     */
+    private Object extractValueFromToken(Token token) {
+        if (token == null) return null;
+        
+        try {
+            switch (token.type) {
+                case NUMBER:
+                    if (token.value.contains(".")) {
+                        return Float.parseFloat(token.value);
+                    } else {
+                        return Integer.parseInt(token.value);
+                    }
+                case STRING:
+                    return token.value.substring(1, token.value.length() - 1);
+                case TRUE:
+                    return true;
+                case FALSE:
+                    return false;
+                case IDENTIFIER:
+                    // Para simulación, retornar valores por defecto basados en el nombre
+                    if (token.value.matches(".*[a-zA-Z].*")) {
+                        return 0; // Valor numérico por defecto
+                    }
+                    return 0;
+                default:
+                    return null;
+            }
+        } catch (NumberFormatException e) {
+            System.err.println("Error parseando valor: " + token.value);
+            return null;
+        }
+    }
+
+    /**
+     * Muestra errores en la consola
+     */
+    private void mostrarErrorEnConsola(Exception ex) {
+        if (consoleTextPane == null) {
+            consoleTextPane = new JTextPane();
+            consoleTextPane.setEditable(false);
+            consoleTextPane.setFont(FUENTE_CONSOLA);
+            consoleTextPane.setBackground(Color.BLACK);
+            consoleTextPane.setForeground(Color.WHITE);
+        }
+        
+        StringBuilder errorMsg = new StringBuilder();
+        errorMsg.append("❌ ERROR DURANTE EL ANÁLISIS:\n");
+        errorMsg.append("=".repeat(50)).append("\n");
+        errorMsg.append(ex.getMessage()).append("\n\n");
+        errorMsg.append("Stack trace:\n");
+        for (StackTraceElement element : ex.getStackTrace()) {
+            if (element.getClassName().contains("CodeEditor") || 
+                element.getClassName().contains("Lexer") ||
+                element.getClassName().contains("Parser") ||
+                element.getClassName().contains("SemanticAnalyzer")) {
+                errorMsg.append("  at ").append(element).append("\n");
+            }
+        }
+        
+        consoleTextPane.setText(errorMsg.toString());
+        toggleConsola();
+    }
+
+    // ... (el resto de los métodos de CodeEditor se mantienen igual)
 
     private JButton crearBotonSuperior(String texto, String tooltip) {
         JButton btn = new JButton(texto);
@@ -359,7 +537,9 @@ public class CodeEditor {
             reader.close();
             textPane.setText(content.toString());
         } catch (Exception ex) {
-            consoleTextPane.setText("Error al abrir archivo: " + ex.getMessage());
+            if (consoleTextPane != null) {
+                consoleTextPane.setText("Error al abrir archivo: " + ex.getMessage());
+            }
         }
 
         JPanel tabPanel = new JPanel(new BorderLayout());
@@ -407,7 +587,9 @@ public class CodeEditor {
 
     private void actualizarUI(JTextPane editor, JTextPane lineNumbers) {
         String content = editor.getText();
-        eastTextPane.setText(content);
+        if (eastTextPane != null) {
+            eastTextPane.setText(content);
+        }
 
         int lineCount = content.split("\n").length;
         StringBuilder numbers = new StringBuilder();
@@ -431,7 +613,9 @@ public class CodeEditor {
                     JScrollPane scroll = (JScrollPane) comp;
                     if (scroll.getViewport().getView() instanceof JTextPane) {
                         JTextPane editor = (JTextPane) scroll.getViewport().getView();
-                        eastTextPane.setText(editor.getText());
+                        if (eastTextPane != null) {
+                            eastTextPane.setText(editor.getText());
+                        }
                     }
                 }
             }
@@ -476,7 +660,9 @@ public class CodeEditor {
                 abrirArchivoEnPestana(nuevoArchivo);
             }
         } catch (IOException ex) {
-            consoleTextPane.setText("Error al crear archivo: " + ex.getMessage());
+            if (consoleTextPane != null) {
+                consoleTextPane.setText("Error al crear archivo: " + ex.getMessage());
+            }
         }
     }
 
@@ -519,14 +705,20 @@ public class CodeEditor {
             if (entry.getValue().equals(editor)) {
                 try (FileWriter writer = new FileWriter(entry.getKey())) {
                     writer.write(editor.getText());
-                    consoleTextPane.setText("Archivo guardado exitosamente!");
+                    if (consoleTextPane != null) {
+                        consoleTextPane.setText("Archivo guardado exitosamente!");
+                    }
                 } catch (Exception ex) {
-                    consoleTextPane.setText("Error al guardar: " + ex.getMessage());
+                    if (consoleTextPane != null) {
+                        consoleTextPane.setText("Error al guardar: " + ex.getMessage());
+                    }
                 }
                 return;
             }
         }
-        consoleTextPane.setText("No se pudo encontrar el archivo abierto para guardar.");
+        if (consoleTextPane != null) {
+            consoleTextPane.setText("No se pudo encontrar el archivo abierto para guardar.");
+        }
     }
 
     private void toggleConsola() {
@@ -536,7 +728,7 @@ public class CodeEditor {
         
         if (visible) {
             ejecutarBtn.setText("⬇ Ocultar Consola");
-            if (consoleTextPane.getText().trim().isEmpty()) {
+            if (consoleTextPane != null && consoleTextPane.getText().trim().isEmpty()) {
                 consoleTextPane.setText("Consola lista...\n");
             }
         } else {

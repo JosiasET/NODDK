@@ -2,6 +2,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.Stack;
 
 /**
  * Analizador Semántico para el lenguaje Noddk
@@ -13,6 +14,13 @@ public class SemanticAnalyzer {
     private Map<String, VariableInfo> symbolTable;
     private Set<String> errors;
     
+    // Nuevas estructuras para reglas adicionales
+    private Set<String> initializedVariables;
+    private Stack<String> scopeStack;
+    private Map<String, Map<String, VariableInfo>> scopeSymbolTables;
+    private int loopComplexity;
+    private boolean hasReturnStatement;
+    
     // Límites de tipos de datos según especificación
     private static final int INT_MIN = -2147483648;
     private static final int INT_MAX = 2147483647;
@@ -20,16 +28,16 @@ public class SemanticAnalyzer {
     private static final float FLOAT_MAX = 3.4e38f;
     private static final char CHAR_MIN = '\u0000';
     private static final char CHAR_MAX = '\uffff';
-    private static final int STRING_MAX_LENGTH = 2147483647; // Límite teórico de Java
+    private static final int STRING_MAX_LENGTH = 2147483647;
     
     /**
      * Información de una variable en la tabla de símbolos
      */
     public static class VariableInfo {
-        public String type;      // Tipo de dato: int, float, char, boolean, String
-        public Object value;     // Valor actual de la variable
-        public int line;         // Línea donde fue declarada
-        public boolean isConstant; // Si es una constante
+        public String type;
+        public Object value;
+        public int line;
+        public boolean isConstant;
         
         public VariableInfo(String type, Object value, int line) {
             this.type = type;
@@ -47,7 +55,8 @@ public class SemanticAnalyzer {
         
         @Override
         public String toString() {
-            return "VariableInfo{type='" + type + "', value=" + value + ", line=" + line + ", constant=" + isConstant + "}";
+            return String.format("%-10s %-15s %-8s %s", 
+                type, value, isConstant ? "CONST" : "VAR", "Línea " + line);
         }
     }
     
@@ -55,14 +64,46 @@ public class SemanticAnalyzer {
     public SemanticAnalyzer() {
         this.symbolTable = new HashMap<>();
         this.errors = new HashSet<>();
+        this.initializedVariables = new HashSet<>();
+        this.scopeStack = new Stack<>();
+        this.scopeSymbolTables = new HashMap<>();
+        this.loopComplexity = 0;
+        this.hasReturnStatement = false;
+        
+        // Inicializar scope global
+        enterScope("global");
+    }
+    
+    // ==================== REGLAS DE ALCANCE (SCOPE) ====================
+    
+    public void enterScope(String scopeName) {
+        scopeStack.push(scopeName);
+        scopeSymbolTables.put(scopeName, new HashMap<>());
+    }
+    
+    public void exitScope() {
+        if (!scopeStack.isEmpty()) {
+            String scopeName = scopeStack.pop();
+            scopeSymbolTables.remove(scopeName);
+        }
+    }
+    
+    public boolean checkScopeAccess(String identifier, int line) {
+        // Buscar en scopes desde el más interno al más externo
+        for (int i = scopeStack.size() - 1; i >= 0; i--) {
+            String currentScope = scopeStack.get(i);
+            Map<String, VariableInfo> scopeTable = scopeSymbolTables.get(currentScope);
+            if (scopeTable.containsKey(identifier)) {
+                return true;
+            }
+        }
+        
+        addError("Línea " + line + ": Variable '" + identifier + "' fuera de alcance o no declarada");
+        return false;
     }
     
     // ==================== REGLA 1: DETECCIÓN DE TIPOS Y LÍMITES ====================
     
-    /**
-     * Infiere el tipo de dato basado en el valor literal
-     * REGLA: Detección automática de tipos con verificación de límites
-     */
     public String inferTypeFromValue(Object value, int line) {
         if (value instanceof Integer) {
             return inferIntegerType((Integer) value, line);
@@ -80,58 +121,37 @@ public class SemanticAnalyzer {
         return "unknown";
     }
     
-    /**
-     * Infiere tipo para enteros verificando límites de int
-     * REGLA: Los enteros deben estar entre -2,147,483,648 y 2,147,483,647
-     */
     private String inferIntegerType(int value, int line) {
         if (value >= INT_MIN && value <= INT_MAX) {
             return "int";
         } else {
-            addError("Línea " + line + ": Valor entero fuera de rango: " + value + 
-                    ". Límites: [" + INT_MIN + ", " + INT_MAX + "]");
+            addError("Línea " + line + ": Valor entero fuera de rango: " + value);
             return "error";
         }
     }
     
-    /**
-     * Infiere tipo para flotantes verificando límites de float
-     * REGLA: Los floats deben estar entre ~1.4e-45 y ~3.4e38
-     */
     private String inferFloatType(float value, int line) {
         float absValue = Math.abs(value);
         if (absValue == 0 || (absValue >= FLOAT_MIN && absValue <= FLOAT_MAX)) {
             return "float";
         } else {
-            addError("Línea " + line + ": Valor float fuera de rango: " + value + 
-                    ". Límites: [" + FLOAT_MIN + ", " + FLOAT_MAX + "]");
+            addError("Línea " + line + ": Valor float fuera de rango: " + value);
             return "error";
         }
     }
     
-    /**
-     * Verifica límites para caracteres
-     * REGLA: Chars entre '\u0000' y '\uffff'
-     */
     private void checkCharLimits(char value, int line) {
         if (value < CHAR_MIN || value > CHAR_MAX) {
             addError("Línea " + line + ": Valor char fuera de rango: '" + value + "'");
         }
     }
     
-    /**
-     * Verifica límites para strings
-     * REGLA: Strings no pueden exceder longitud máxima
-     */
     private void checkStringLimits(String value, int line) {
         if (value.length() > STRING_MAX_LENGTH) {
             addError("Línea " + line + ": String excede longitud máxima: " + value.length());
         }
     }
     
-    /**
-     * Verifica que un valor esté dentro de los límites de su tipo
-     */
     private void checkValueLimits(String type, Object value, int line) {
         switch (type) {
             case "int":
@@ -151,42 +171,29 @@ public class SemanticAnalyzer {
                     }
                 }
                 break;
-            case "char":
-                if (value instanceof Character) {
-                    checkCharLimits((Character) value, line);
-                }
-                break;
-            case "String":
-                if (value instanceof String) {
-                    checkStringLimits((String) value, line);
-                }
-                break;
         }
     }
     
     // ==================== REGLA 2: DECLARACIÓN DE VARIABLES ====================
     
-    /**
-     * Verifica una declaración de variable
-     * REGLA: No se pueden duplicar variables (nombres únicos)
-     * REGLA: Nombres de variables válidos
-     */
     public boolean checkDeclaration(String identifier, Object value, int line) {
-        // REGLA: Verificar nombre de variable válido
+        // Verificar nombre de variable válido
         if (!isValidIdentifier(identifier)) {
             addError("Línea " + line + ": Nombre de variable inválido: '" + identifier + "'");
             return false;
         }
         
-        // REGLA: No se pueden usar palabras reservadas
+        // No se pueden usar palabras reservadas
         if (isReservedWord(identifier)) {
             addError("Línea " + line + ": No se puede usar palabra reservada: '" + identifier + "'");
             return false;
         }
         
-        // Verificar si la variable ya existe
-        if (symbolTable.containsKey(identifier)) {
-            addError("Línea " + line + ": Variable '" + identifier + "' ya está declarada");
+        // Verificar si la variable ya existe en el scope actual
+        String currentScope = scopeStack.peek();
+        Map<String, VariableInfo> currentScopeTable = scopeSymbolTables.get(currentScope);
+        if (currentScopeTable.containsKey(identifier)) {
+            addError("Línea " + line + ": Variable '" + identifier + "' ya está declarada en este ámbito");
             return false;
         }
         
@@ -198,9 +205,14 @@ public class SemanticAnalyzer {
         
         checkValueLimits(inferredType, value, line);
         
-        // Agregar a tabla de símbolos
-        symbolTable.put(identifier, new VariableInfo(inferredType, value, line));
-        System.out.println("✓ Variable declarada: " + identifier + " = " + value + " (" + inferredType + ")");
+        // Agregar a tabla de símbolos del scope actual
+        VariableInfo varInfo = new VariableInfo(inferredType, value, line);
+        currentScopeTable.put(identifier, varInfo);
+        symbolTable.put(identifier, varInfo); // Para acceso global
+        
+        // Marcar como inicializada
+        initializedVariables.add(identifier);
+        
         return true;
     }
     
@@ -214,28 +226,20 @@ public class SemanticAnalyzer {
         
         // Marcar como constante
         symbolTable.get(identifier).isConstant = true;
-        System.out.println("✓ Constante declarada: " + identifier + " = " + value);
         return true;
     }
     
     // ==================== REGLA 3: ASIGNACIÓN DE VARIABLES ====================
     
-    /**
-     * Verifica una asignación de variable
-     * REGLA: La variable debe existir previamente
-     * REGLA: Compatibilidad de tipos en asignación
-     * REGLA: Constantes no pueden reasignarse
-     */
     public boolean checkAssignment(String identifier, Object value, int line) {
-        // Verificar existencia de la variable
-        if (!symbolTable.containsKey(identifier)) {
-            addError("Línea " + line + ": Variable '" + identifier + "' no declarada");
+        // Verificar existencia y alcance
+        if (!checkScopeAccess(identifier, line)) {
             return false;
         }
         
         VariableInfo varInfo = symbolTable.get(identifier);
         
-        // REGLA: Constantes no pueden reasignarse
+        // Constantes no pueden reasignarse
         if (varInfo.isConstant) {
             addError("Línea " + line + ": No se puede reasignar constante '" + identifier + "'");
             return false;
@@ -247,130 +251,231 @@ public class SemanticAnalyzer {
             return false;
         }
         
-        // REGLA: Compatibilidad de tipos con promoción numérica
-        if (!checkTypeCompatibility(varInfo.type, inferredType, line)) {
+        // CORREGIDO: Compatibilidad de tipos ESTRICTA - NO permite int → float
+        if (!checkTypeCompatibilityStrict(varInfo.type, inferredType, line)) {
             addError("Línea " + line + ": Incompatibilidad de tipos. Esperado: " + 
                     varInfo.type + ", Obtenido: " + inferredType);
             return false;
         }
         
-        // Verificar límites del nuevo valor
+        // Verificar límites
         checkValueLimits(varInfo.type, value, line);
         
-        // Actualizar valor en tabla de símbolos
+        // Actualizar valor
         varInfo.value = value;
-        System.out.println("✓ Variable asignada: " + identifier + " = " + value);
+        initializedVariables.add(identifier);
+        
         return true;
     }
     
     /**
-     * Verifica compatibilidad entre tipos para asignación
-     * REGLA: Permite promoción numérica (int → float)
+     * CORREGIDO: Verificación ESTRICTA de tipos - NO permite promoción automática
      */
-    private boolean checkTypeCompatibility(String expected, String actual, int line) {
-        // Mismo tipo
-        if (expected.equals(actual)) {
-            return true;
-        }
-        
-        // REGLA: Promoción numérica permitida
-        if (expected.equals("float") && actual.equals("int")) {
-            return true; // int puede promocionar a float
-        }
-        
-        // REGLA: Char puede asignarse a int (valor ASCII)
-        if (expected.equals("int") && actual.equals("char")) {
-            return true;
-        }
-        
-        return false;
+    private boolean checkTypeCompatibilityStrict(String expected, String actual, int line) {
+        // SOLO mismo tipo
+        return expected.equals(actual);
     }
     
-    // ==================== REGLA 4: OPERACIONES ARITMÉTICAS ====================
+    // ==================== REGLA 4: VERIFICACIÓN DE INICIALIZACIÓN ====================
+    
+    public boolean checkVariableInitialized(String identifier, int line) {
+        if (!initializedVariables.contains(identifier)) {
+            addError("Línea " + line + ": Variable '" + identifier + "' usada sin inicializar");
+            return false;
+        }
+        return true;
+    }
+    
+    public void markVariableInitialized(String identifier) {
+        initializedVariables.add(identifier);
+    }
+    
+    // ==================== REGLA 5: TIPOS EN ESTRUCTURAS DE CONTROL ====================
+    
+    public boolean checkConditionType(Object condition, int line) {
+        if (!(condition instanceof Boolean)) {
+            addError("Línea " + line + ": La condición debe ser de tipo boolean, se encontró: " + 
+                    getTypeName(condition));
+            return false;
+        }
+        return true;
+    }
+    
+    public boolean checkLoopCondition(Object condition, int line) {
+        if (!checkConditionType(condition, line)) {
+            return false;
+        }
+        
+        // Detectar condiciones que siempre son true (posible bucle infinito)
+        if (condition instanceof Boolean && (Boolean) condition == true) {
+            addError("Línea " + line + ": Advertencia - condición siempre verdadera, posible bucle infinito");
+        }
+        
+        return true;
+    }
+    
+    // ==================== REGLA 6: CONTROL DE BUCLES ====================
+    
+    public void enterLoop(int line) {
+        loopComplexity++;
+        if (loopComplexity > 10) {
+            addError("Línea " + line + ": Anidamiento de bucles muy profundo (" + loopComplexity + ")");
+        }
+    }
+    
+    public void exitLoop() {
+        if (loopComplexity > 0) {
+            loopComplexity--;
+        }
+    }
+    
+    // ==================== REGLA 7: DETECCIÓN DE CÓDIGO INALCANZABLE ====================
+    
+    public void markReturnStatement(int line) {
+        hasReturnStatement = true;
+    }
+    
+    public boolean checkUnreachableCode(int line) {
+        if (hasReturnStatement) {
+            addError("Línea " + line + ": Código inalcanzable después de return");
+            return false;
+        }
+        return true;
+    }
+    
+    public void resetReturnAnalysis() {
+        hasReturnStatement = false;
+    }
+    
+    // ==================== REGLA 8: OPERACIONES ARITMÉTICAS ====================
     
     /**
-     * Verifica una operación binaria entre dos valores
-     * REGLA: No se pueden operar tipos incompatibles
-     * REGLA: No se puede operar números con strings (excepto concatenación)
-     * REGLA: No división por cero
-     * REGLA: Prioridades aritméticas
+     * CORREGIDO: Método que SOLO verifica tipos sin realizar operaciones
+     */
+    public boolean checkBinaryOperationTypes(Object left, Object right, String operator, int line) {
+        String leftType = inferTypeFromValue(left, line);
+        String rightType = inferTypeFromValue(right, line);
+        
+        // Concatenación de strings
+        if (operator.equals("+") && (leftType.equals("String") || rightType.equals("String"))) {
+            return true; // Strings se pueden concatenar
+        }
+        
+        // No se pueden operar booleanos en operaciones aritméticas
+        if (leftType.equals("boolean") || rightType.equals("boolean")) {
+            addError("Línea " + line + ": No se pueden operar booleanos en operaciones aritméticas");
+            return false;
+        }
+        
+        // CORREGIDO: Solo operaciones entre tipos EXACTAMENTE iguales - NO promoción
+        if (!areSameTypeStrict(leftType, rightType)) {
+            addError("Línea " + line + ": No se puede operar " + leftType + " con " + rightType + 
+                    ". Los tipos deben ser exactamente iguales.");
+            return false;
+        }
+        
+        // División por cero (solo verificación, no ejecución)
+        if ((operator.equals("/") || operator.equals("%")) && isZero(right)) {
+            addError("Línea " + line + ": División por cero no permitida");
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * CORREGIDO: Verificación ESTRICTA de tipos iguales
+     */
+    private boolean areSameTypeStrict(String type1, String type2) {
+        return type1.equals(type2);
+    }
+    
+    // ==================== REGLA 9: DETECCIÓN DE OVERFLOW ====================
+    
+    private boolean checkArithmeticOverflow(Object left, Object right, String operator, int line) {
+        if (left instanceof Integer && right instanceof Integer) {
+            int a = (Integer) left;
+            int b = (Integer) right;
+            
+            try {
+                switch (operator) {
+                    case "+":
+                        Math.addExact(a, b);
+                        break;
+                    case "-":
+                        Math.subtractExact(a, b);
+                        break;
+                    case "*":
+                        Math.multiplyExact(a, b);
+                        break;
+                }
+            } catch (ArithmeticException e) {
+                addError("Línea " + line + ": Overflow en operación " + a + " " + operator + " " + b);
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    // ==================== OPERACIONES ARITMÉTICAS ESPECÍFICAS (MANTENIDAS) ====================
+    
+    /**
+     * Método original mantenido para compatibilidad
      */
     public Object checkBinaryOperation(Object left, Object right, String operator, int line) {
         String leftType = inferTypeFromValue(left, line);
         String rightType = inferTypeFromValue(right, line);
         
-        // REGLA ESPECIAL: Concatenación de strings
+        // Concatenación de strings
         if (operator.equals("+") && (leftType.equals("String") || rightType.equals("String"))) {
             return concatenateValues(left, right, line);
         }
         
-        // REGLA: No se pueden operar booleanos en operaciones aritméticas
+        // No se pueden operar booleanos en operaciones aritméticas
         if (leftType.equals("boolean") || rightType.equals("boolean")) {
             addError("Línea " + line + ": No se pueden operar booleanos en operaciones aritméticas");
             return null;
         }
         
-        // REGLA: Solo operaciones entre tipos compatibles
-        if (!areOperableTypes(leftType, rightType)) {
-            addError("Línea " + line + ": No se puede operar " + leftType + " con " + rightType);
+        // Solo operaciones entre tipos EXACTAMENTE iguales
+        if (!areSameTypeStrict(leftType, rightType)) {
+            addError("Línea " + line + ": No se puede operar " + leftType + " con " + rightType + 
+                    ". Los tipos deben ser exactamente iguales.");
             return null;
         }
         
-        // REGLA: División por cero
+        // División por cero
         if ((operator.equals("/") || operator.equals("%")) && isZero(right)) {
             addError("Línea " + line + ": División por cero no permitida");
             return null;
         }
         
-        // Realizar operación
+        // Verificar overflow
+        if (!checkArithmeticOverflow(left, right, operator, line)) {
+            return null;
+        }
+        
         return performOperation(left, right, operator, leftType, rightType, line);
     }
     
-    /**
-     * REGLA: Concatenación de strings
-     */
     private Object concatenateValues(Object left, Object right, int line) {
         String leftStr = left.toString();
         String rightStr = right.toString();
         String result = leftStr + rightStr;
-        
         checkStringLimits(result, line);
         return result;
     }
     
-    /**
-     * Verifica si tipos son operables (números o chars)
-     */
-    private boolean areOperableTypes(String type1, String type2) {
-        Set<String> numericTypes = Set.of("int", "float", "char");
-        return numericTypes.contains(type1) && numericTypes.contains(type2);
-    }
-    
-    /**
-     * Verifica si un tipo es numérico
-     */
-    private boolean isNumericType(String type) {
-        return type.equals("int") || type.equals("float") || type.equals("char");
-    }
-    
-    /**
-     * Verifica si un valor es cero
-     */
     private boolean isZero(Object value) {
         if (value instanceof Integer) return (Integer) value == 0;
         if (value instanceof Float) return (Float) value == 0.0f;
-        if (value instanceof Character) return (Character) value == 0;
         return false;
     }
     
-    /**
-     * Realiza la operación aritmética verificando resultados
-     */
     private Object performOperation(Object left, Object right, String operator, 
                                    String leftType, String rightType, int line) {
         try {
-            // Determinar tipo resultante (promoción numérica)
-            String resultType = getResultType(leftType, rightType);
+            String resultType = leftType;
             
             switch (operator) {
                 case "+":
@@ -397,37 +502,17 @@ public class SemanticAnalyzer {
         }
     }
     
-    /**
-     * REGLA: Determina tipo resultante de operación (promoción numérica)
-     */
-    private String getResultType(String type1, String type2) {
-        // Si alguno es float, resultado es float
-        if (type1.equals("float") || type2.equals("float")) {
-            return "float";
-        }
-        // Si alguno es int, resultado es int
-        if (type1.equals("int") || type2.equals("int")) {
-            return "int";
-        }
-        // Ambos char, resultado es int
-        if (type1.equals("char") && type2.equals("char")) {
-            return "int";
-        }
-        return type1;
-    }
-    
-    // ==================== OPERACIONES ARITMÉTICAS ESPECÍFICAS ====================
-    
     private Object addValues(Object left, Object right, String resultType, int line) {
         if (resultType.equals("float")) {
             float result = getFloatValue(left) + getFloatValue(right);
             checkValueLimits("float", result, line);
             return result;
-        } else {
+        } else if (resultType.equals("int")) {
             int result = getIntValue(left) + getIntValue(right);
             checkValueLimits("int", result, line);
             return result;
         }
+        return null;
     }
     
     private Object subtractValues(Object left, Object right, String resultType, int line) {
@@ -435,11 +520,12 @@ public class SemanticAnalyzer {
             float result = getFloatValue(left) - getFloatValue(right);
             checkValueLimits("float", result, line);
             return result;
-        } else {
+        } else if (resultType.equals("int")) {
             int result = getIntValue(left) - getIntValue(right);
             checkValueLimits("int", result, line);
             return result;
         }
+        return null;
     }
     
     private Object multiplyValues(Object left, Object right, String resultType, int line) {
@@ -447,11 +533,12 @@ public class SemanticAnalyzer {
             float result = getFloatValue(left) * getFloatValue(right);
             checkValueLimits("float", result, line);
             return result;
-        } else {
+        } else if (resultType.equals("int")) {
             int result = getIntValue(left) * getIntValue(right);
             checkValueLimits("int", result, line);
             return result;
         }
+        return null;
     }
     
     private Object divideValues(Object left, Object right, String resultType, int line) {
@@ -464,7 +551,7 @@ public class SemanticAnalyzer {
             float result = getFloatValue(left) / divisor;
             checkValueLimits("float", result, line);
             return result;
-        } else {
+        } else if (resultType.equals("int")) {
             int divisor = getIntValue(right);
             if (divisor == 0) {
                 addError("Línea " + line + ": División por cero");
@@ -474,6 +561,7 @@ public class SemanticAnalyzer {
             checkValueLimits("int", result, line);
             return result;
         }
+        return null;
     }
     
     private Object moduloValues(Object left, Object right, String resultType, int line) {
@@ -486,7 +574,7 @@ public class SemanticAnalyzer {
             float result = getFloatValue(left) % getFloatValue(right);
             checkValueLimits("float", result, line);
             return result;
-        } else {
+        } else if (resultType.equals("int")) {
             int divisor = getIntValue(right);
             if (divisor == 0) {
                 addError("Línea " + line + ": Módulo por cero");
@@ -496,6 +584,7 @@ public class SemanticAnalyzer {
             checkValueLimits("int", result, line);
             return result;
         }
+        return null;
     }
     
     private Object compareValues(Object left, Object right, String operator, String resultType, int line) {
@@ -512,7 +601,7 @@ public class SemanticAnalyzer {
                 case ">=": return leftVal >= rightVal;
                 default: return false;
             }
-        } else {
+        } else if (resultType.equals("int")) {
             int leftVal = getIntValue(left);
             int rightVal = getIntValue(right);
             
@@ -526,6 +615,7 @@ public class SemanticAnalyzer {
                 default: return false;
             }
         }
+        return false;
     }
     
     private Object logicalOperation(Object left, Object right, String operator, int line) {
@@ -544,34 +634,39 @@ public class SemanticAnalyzer {
         }
     }
     
-    // ==================== REGLAS DE VALIDACIÓN ====================
+    // ==================== FUNCIONES AUXILIARES ====================
     
-    /**
-     * REGLA: Identificadores válidos (letras, números, _, no empezar con número)
-     */
+    private float getFloatValue(Object value) {
+        if (value instanceof Integer) return (Integer) value;
+        if (value instanceof Float) return (Float) value;
+        return 0.0f;
+    }
+    
+    private int getIntValue(Object value) {
+        if (value instanceof Integer) return (Integer) value;
+        if (value instanceof Float) return ((Float) value).intValue();
+        return 0;
+    }
+    
+    private String getTypeName(Object value) {
+        if (value instanceof Integer) return "int";
+        if (value instanceof Float) return "float";
+        if (value instanceof Boolean) return "boolean";
+        if (value instanceof String) return "String";
+        if (value instanceof Character) return "char";
+        return "desconocido";
+    }
+    
     private boolean isValidIdentifier(String identifier) {
-        if (identifier == null || identifier.isEmpty()) {
-            return false;
-        }
+        if (identifier == null || identifier.isEmpty()) return false;
+        if (Character.isDigit(identifier.charAt(0))) return false;
         
-        // No puede empezar con número
-        if (Character.isDigit(identifier.charAt(0))) {
-            return false;
-        }
-        
-        // Solo letras, números y _
         for (char c : identifier.toCharArray()) {
-            if (!Character.isLetterOrDigit(c) && c != '_') {
-                return false;
-            }
+            if (!Character.isLetterOrDigit(c) && c != '_') return false;
         }
-        
         return true;
     }
     
-    /**
-     * REGLA: Palabras reservadas no pueden usarse como identificadores
-     */
     private boolean isReservedWord(String identifier) {
         Set<String> reservedWords = Set.of(
             "if", "else", "while", "for", "do", "break", "return", 
@@ -580,36 +675,36 @@ public class SemanticAnalyzer {
         return reservedWords.contains(identifier);
     }
     
-    /**
-     * REGLA: Verificar uso de variable no declarada
-     */
-    public boolean checkVariableUsage(String identifier, int line) {
-        if (!symbolTable.containsKey(identifier)) {
-            addError("Línea " + line + ": Variable no declarada '" + identifier + "'");
-            return false;
-        }
-        return true;
-    }
-    
-    // ==================== FUNCIONES AUXILIARES ====================
-    
-    private float getFloatValue(Object value) {
-        if (value instanceof Integer) return (Integer) value;
-        if (value instanceof Float) return (Float) value;
-        if (value instanceof Character) return (float) (Character) value;
-        return 0.0f;
-    }
-    
-    private int getIntValue(Object value) {
-        if (value instanceof Integer) return (Integer) value;
-        if (value instanceof Float) return ((Float) value).intValue();
-        if (value instanceof Character) return (int) (Character) value;
-        return 0;
-    }
-    
-    private void addError(String error) {
+    public void addError(String error) {
         errors.add(error);
         System.err.println("❌ " + error);
+    }
+    
+    // ==================== MÉTODOS NUEVOS PARA MOSTRAR ERRORES ====================
+    
+    /**
+     * NUEVO: Obtener todos los errores como lista
+     */
+    public Set<String> getErrors() {
+        return new HashSet<>(errors);
+    }
+    
+    /**
+     * NUEVO: Obtener errores como string formateado
+     */
+    public String getErrorsAsString() {
+        if (errors.isEmpty()) {
+            return "✅ No hay errores semánticos";
+        } else {
+            StringBuilder sb = new StringBuilder();
+            sb.append("❌ ERRORES SEMÁNTICOS ENCONTRADOS (").append(errors.size()).append("):\n");
+            sb.append("=".repeat(60)).append("\n");
+            for (String error : errors) {
+                sb.append("• ").append(error).append("\n");
+            }
+            sb.append("=".repeat(60)).append("\n");
+            return sb.toString();
+        }
     }
     
     public boolean hasErrors() {
@@ -617,25 +712,41 @@ public class SemanticAnalyzer {
     }
     
     public void printErrors() {
-        if (errors.isEmpty()) {
-            System.out.println("✓ No hay errores semánticos");
-        } else {
-            System.out.println("\n=== ERRORES SEMÁNTICOS ENCONTRADOS (" + errors.size() + ") ===");
-            for (String error : errors) {
-                System.out.println(error);
-            }
-        }
+        System.out.println(getErrorsAsString());
     }
     
     public void printSymbolTable() {
-        System.out.println("\n=== TABLA DE SÍMBOLOS ===");
+        System.out.println("\n📊 TABLA DE SÍMBOLOS:");
+        System.out.println("=".repeat(60));
+        System.out.printf("%-10s %-15s %-8s %s\n", "VARIABLE", "VALOR", "TIPO", "UBICACIÓN");
+        System.out.println("-".repeat(60));
+        
         if (symbolTable.isEmpty()) {
-            System.out.println("Vacía");
+            System.out.println("          << TABLA VACÍA >>");
         } else {
             for (Map.Entry<String, VariableInfo> entry : symbolTable.entrySet()) {
-                System.out.println(entry.getKey() + " -> " + entry.getValue());
+                System.out.printf("%-10s %s\n", entry.getKey(), entry.getValue());
             }
         }
+        System.out.println("=".repeat(60));
+    }
+    
+    public String getSymbolTableAsString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("📊 TABLA DE SÍMBOLOS:\n");
+        sb.append("=".repeat(50)).append("\n");
+        sb.append(String.format("%-10s %-15s %-8s %s\n", "VARIABLE", "VALOR", "TIPO", "UBICACIÓN"));
+        sb.append("-".repeat(50)).append("\n");
+        
+        if (symbolTable.isEmpty()) {
+            sb.append("          << TABLA VACÍA >>\n");
+        } else {
+            for (Map.Entry<String, VariableInfo> entry : symbolTable.entrySet()) {
+                sb.append(String.format("%-10s %s\n", entry.getKey(), entry.getValue()));
+            }
+        }
+        sb.append("=".repeat(50)).append("\n");
+        return sb.toString();
     }
     
     // ==================== MÉTODOS DE CONSULTA ====================
@@ -651,9 +762,19 @@ public class SemanticAnalyzer {
     public void clear() {
         symbolTable.clear();
         errors.clear();
+        initializedVariables.clear();
+        scopeStack.clear();
+        scopeSymbolTables.clear();
+        loopComplexity = 0;
+        hasReturnStatement = false;
+        enterScope("global");
     }
     
     public int getErrorCount() {
         return errors.size();
+    }
+    
+    public Map<String, VariableInfo> getSymbolTable() {
+        return new HashMap<>(symbolTable);
     }
 }

@@ -1,15 +1,31 @@
 import java.util.*;
 
+class ReturnException extends RuntimeException {
+        public final Object value;
+        
+        public ReturnException(Object value) {
+            this.value = value;
+        }
+    }
+
 public class Parser {
     private final List<Token> tokens;
     private int position = 0;
     private final Map<String, Object> symbolTable = new HashMap<>();
     private final StringBuilder output = new StringBuilder();
-    
+     private final SemanticAnalyzer semanticAnalyzer;
+
     public Parser(List<Token> tokens) {
         this.tokens = tokens;
+        this.semanticAnalyzer = new SemanticAnalyzer();
+
     }
     
+    public Parser(List<Token> tokens, SemanticAnalyzer semanticAnalyzer) {
+        this.tokens = tokens;
+        this.semanticAnalyzer = semanticAnalyzer;
+    }
+
     private Token currentToken() {
         return position < tokens.size() ? tokens.get(position) : null;
     }
@@ -80,7 +96,7 @@ public class Parser {
                 eat(TokenType.RETURN);
                 Object returnValue = expression();
                 output.append("↩️  Return: ").append(returnValue).append("\n");
-                break;
+                throw new ReturnException(returnValue); // Lanzar excepción en lugar de retornar
             case FUNCTION:
                 function();
                 break;
@@ -91,6 +107,7 @@ public class Parser {
                 }
         }
     }
+    
     
     private void declarationOrAssignment() {
         String identifier = currentToken().value;
@@ -197,11 +214,18 @@ public class Parser {
         
         switch (token.type) {
             case IDENTIFIER:
-                eat(TokenType.IDENTIFIER);
-                if (!symbolTable.containsKey(token.value)) {
-                    throw new RuntimeException("❌ Error en línea " + token.line + ": Variable '" + token.value + "' no declarada");
+                // ✅ VERIFICAR si es llamada a función
+                Token nextToken = position + 1 < tokens.size() ? tokens.get(position + 1) : null;
+                if (nextToken != null && nextToken.type == TokenType.LPAREN) {
+                    return functionCall(); // Es una llamada a función
+                } else {
+                    // Es una variable normal
+                    eat(TokenType.IDENTIFIER);
+                    if (!symbolTable.containsKey(token.value)) {
+                        throw new RuntimeException("❌ Error en línea " + token.line + ": Variable '" + token.value + "' no declarada");
+                    }
+                    return symbolTable.get(token.value);
                 }
-                return symbolTable.get(token.value);
                 
             case NUMBER:
                 eat(TokenType.NUMBER);
@@ -238,6 +262,88 @@ public class Parser {
         }
     }
     
+    private Object functionCall() {
+        String functionName = currentToken().value;
+        eat(TokenType.IDENTIFIER);
+        eat(TokenType.LPAREN);
+        
+        output.append("🔹 Llamando función: ").append(functionName).append("\n");
+        
+        if (!symbolTable.containsKey(functionName)) {
+            throw new RuntimeException("❌ Error: Función '" + functionName + "' no declarada");
+        }
+        
+        Map<String, Object> functionInfo = (Map<String, Object>) symbolTable.get(functionName);
+        if (!"function".equals(functionInfo.get("type"))) {
+            throw new RuntimeException("❌ Error: '" + functionName + "' no es una función");
+        }
+        
+        @SuppressWarnings("unchecked")
+        List<String> expectedParams = (List<String>) functionInfo.get("parameters");
+        
+        // ✅ PROCESAR argumentos
+        List<Object> arguments = new ArrayList<>();
+        if (currentToken().type != TokenType.RPAREN) {
+            arguments.add(expression());
+            while (currentToken().type == TokenType.COMMA) {
+                eat(TokenType.COMMA);
+                arguments.add(expression());
+            }
+        }
+        eat(TokenType.RPAREN);
+        
+        // ✅ VALIDAR número de parámetros
+        if (arguments.size() != expectedParams.size()) {
+            throw new RuntimeException("❌ Error: Función '" + functionName + "' esperaba " + 
+                expectedParams.size() + " parámetros, se proporcionaron " + arguments.size());
+        }
+        
+        output.append("   Argumentos: ").append(arguments).append("\n");
+        
+        // ✅ GUARDAR el contexto actual (variables locales)
+        Map<String, Object> previousSymbolTable = new HashMap<>(symbolTable);
+        
+        try {
+            // ✅ ASIGNAR parámetros a la tabla de símbolos
+            for (int i = 0; i < expectedParams.size(); i++) {
+                symbolTable.put(expectedParams.get(i), arguments.get(i));
+            }
+            
+            // ✅ EJECUTAR el cuerpo de la función
+            int bodyStart = (int) functionInfo.get("bodyStart");
+            int previousPosition = position;
+            position = bodyStart;
+            
+            // Ejecutar instrucciones hasta encontrar return o fin de función
+            while (currentToken() != null && 
+                currentToken().type != TokenType.RBRACE && 
+                currentToken().type != TokenType.EOF) {
+                try {
+                    instruction();
+                    if (currentToken() != null && currentToken().type == TokenType.SEMICOLON) {
+                        eat(TokenType.SEMICOLON);
+                    }
+                } catch (ReturnException e) {
+                    // ✅ CAPTURAR el return y retornar el valor
+                    output.append("   Función retorna: ").append(e.value).append("\n");
+                    return e.value;
+                }
+            }
+            
+            position = previousPosition; // Restaurar posición
+            
+            // Si no hay return explícito, retornar null o 0
+            output.append("   Función termina sin return explícito\n");
+            return 0;
+            
+        } finally {
+            // ✅ RESTAURAR tabla de símbolos (scope local)
+            symbolTable.clear();
+            symbolTable.putAll(previousSymbolTable);
+        }
+    }
+
+
     private boolean isComparisonOperator(TokenType type) {
         return type == TokenType.EQUALS || type == TokenType.NOT_EQUALS ||
                type == TokenType.LESS || type == TokenType.GREATER ||
@@ -248,6 +354,13 @@ public class Parser {
         double leftNum = toNumber(left);
         double rightNum = toNumber(right);
         
+        if (left instanceof Integer && right instanceof Float) {
+            throw new RuntimeException("No se puede operar int con float");
+        }
+        if (left instanceof Float && right instanceof Integer) {
+            throw new RuntimeException("No se puede operar float con int");
+        }
+
         switch (operator.type) {
             case PLUS: return leftNum + rightNum;
             case MINUS: return leftNum - rightNum;
@@ -735,16 +848,42 @@ public class Parser {
         
         output.append("📋 Declarando función: ").append(functionName).append("\n");
         
+        // ✅ PARÁMETROS
+        List<String> parameters = new ArrayList<>();
         if (currentToken().type != TokenType.RPAREN) {
-            while (currentToken().type == TokenType.IDENTIFIER || currentToken().type == TokenType.COMMA) {
-                eat(currentToken().type);
+            // Primer parámetro
+            parameters.add(currentToken().value);
+            eat(TokenType.IDENTIFIER);
+            
+            // Más parámetros
+            while (currentToken().type == TokenType.COMMA) {
+                eat(TokenType.COMMA);
+                parameters.add(currentToken().value);
+                eat(TokenType.IDENTIFIER);
             }
         }
         eat(TokenType.RPAREN);
         eat(TokenType.LBRACE);
         
+        output.append("   Parámetros: ").append(parameters).append("\n");
+        
+        // ✅ GUARDAR información de la función
+        Map<String, Object> functionInfo = new HashMap<>();
+        functionInfo.put("type", "function");
+        functionInfo.put("parameters", parameters);
+        functionInfo.put("bodyStart", position); // Guardar posición del cuerpo
+        
+        // Guardar función en tabla de símbolos
+        symbolTable.put(functionName, functionInfo);
+        
+        output.append("   Cuerpo de función registrado\n");
+        
+        // ✅ SALTAR el cuerpo de la función (por ahora)
         skipToMatchingBrace();
-        eat(TokenType.RBRACE);
+        
+        if (currentToken() != null && currentToken().type == TokenType.RBRACE) {
+            eat(TokenType.RBRACE);
+        }
     }
     
     // ✅ Método mejorado para saltar bloques
