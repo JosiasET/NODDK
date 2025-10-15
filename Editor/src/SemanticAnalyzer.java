@@ -210,8 +210,44 @@ public class SemanticAnalyzer {
         currentScopeTable.put(identifier, varInfo);
         symbolTable.put(identifier, varInfo); // Para acceso global
         
-        // Marcar como inicializada
+        // CORREGIDO: Marcar como inicializada automáticamente cuando se declara con valor
         initializedVariables.add(identifier);
+        
+        return true;
+    }
+    
+    /**
+     * NUEVO: Declaración de variable sin valor inicial (solo en tabla de símbolos)
+     */
+    public boolean declareVariable(String identifier, String type, int line) {
+        // Verificar nombre de variable válido
+        if (!isValidIdentifier(identifier)) {
+            addError("Línea " + line + ": Nombre de variable inválido: '" + identifier + "'");
+            return false;
+        }
+        
+        // No se pueden usar palabras reservadas
+        if (isReservedWord(identifier)) {
+            addError("Línea " + line + ": No se puede usar palabra reservada: '" + identifier + "'");
+            return false;
+        }
+        
+        // Verificar si la variable ya existe en el scope actual
+        String currentScope = scopeStack.peek();
+        Map<String, VariableInfo> currentScopeTable = scopeSymbolTables.get(currentScope);
+        if (currentScopeTable.containsKey(identifier)) {
+            addError("Línea " + line + ": Variable '" + identifier + "' ya está declarada en este ámbito");
+            return false;
+        }
+        
+        // Crear variable sin valor inicial
+        Object defaultValue = getDefaultValue(type);
+        VariableInfo varInfo = new VariableInfo(type, defaultValue, line);
+        currentScopeTable.put(identifier, varInfo);
+        symbolTable.put(identifier, varInfo);
+        
+        // CORREGIDO: NO marcar como inicializada - esperará una asignación
+        // initializedVariables.add(identifier); // COMENTADO: No inicializar automáticamente
         
         return true;
     }
@@ -232,6 +268,16 @@ public class SemanticAnalyzer {
     // ==================== REGLA 3: ASIGNACIÓN DE VARIABLES ====================
     
     public boolean checkAssignment(String identifier, Object value, int line) {
+        // CORREGIDO: Si la variable no existe, crearla automáticamente
+        if (!symbolTable.containsKey(identifier)) {
+            String inferredType = inferTypeFromValue(value, line);
+            if (inferredType.equals("error")) {
+                return false;
+            }
+            // Declarar la variable automáticamente
+            declareVariable(identifier, inferredType, line);
+        }
+        
         // Verificar existencia y alcance
         if (!checkScopeAccess(identifier, line)) {
             return false;
@@ -261,9 +307,9 @@ public class SemanticAnalyzer {
         // Verificar límites
         checkValueLimits(varInfo.type, value, line);
         
-        // Actualizar valor
+        // CORREGIDO: Actualizar valor Y marcar como inicializada
         varInfo.value = value;
-        initializedVariables.add(identifier);
+        initializedVariables.add(identifier); // IMPORTANTE: Marcar como inicializada
         
         return true;
     }
@@ -279,11 +325,26 @@ public class SemanticAnalyzer {
     // ==================== REGLA 4: VERIFICACIÓN DE INICIALIZACIÓN ====================
     
     public boolean checkVariableInitialized(String identifier, int line) {
+        // CORREGIDO: Solo verificar si NO está en el conjunto de inicializadas
         if (!initializedVariables.contains(identifier)) {
             addError("Línea " + line + ": Variable '" + identifier + "' usada sin inicializar");
             return false;
         }
         return true;
+    }
+    
+    /**
+     * CORREGIDO: Verificar uso de variable en expresiones (más estricto)
+     */
+    public boolean checkVariableUsage(String identifier, int line) {
+        // Primero verificar que existe
+        if (!symbolTable.containsKey(identifier)) {
+            addError("Línea " + line + ": Variable '" + identifier + "' no declarada");
+            return false;
+        }
+        
+        // Luego verificar que está inicializada
+        return checkVariableInitialized(identifier, line);
     }
     
     public void markVariableInitialized(String identifier) {
@@ -675,9 +736,26 @@ public class SemanticAnalyzer {
         return reservedWords.contains(identifier);
     }
     
+    /**
+     * CORREGIDO: Método público para agregar errores
+     */
     public void addError(String error) {
         errors.add(error);
         System.err.println("❌ " + error);
+    }
+    
+    /**
+     * NUEVO: Obtener valor por defecto para un tipo
+     */
+    private Object getDefaultValue(String type) {
+        switch (type) {
+            case "int": return 0;
+            case "float": return 0.0f;
+            case "boolean": return false;
+            case "char": return '\u0000';
+            case "String": return "";
+            default: return null;
+        }
     }
     
     // ==================== MÉTODOS NUEVOS PARA MOSTRAR ERRORES ====================
