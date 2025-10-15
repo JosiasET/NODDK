@@ -146,8 +146,29 @@ public class CodeEditor {
                         toggleConsola();
                         
                     } catch (Exception ex) {
-                        consoleTextPane.setText("❌ Error durante el análisis:\n" + ex.getMessage());
+                        String errorMessage = ex.getMessage();
+                        if (consoleTextPane == null) {
+                            consoleTextPane = new JTextPane();
+                            consoleTextPane.setEditable(false);
+                            consoleTextPane.setFont(FUENTE_CONSOLA);
+                            consoleTextPane.setBackground(COLOR_LINE_NUMBERS);
+                            consoleTextPane.setForeground(COLOR_ACENTO);
+                        }
+                        
+                        if (errorMessage != null && errorMessage.contains("línea")) {
+                            consoleTextPane.setText("❌ ERROR DE SINTAXIS:\n" + 
+                                                "=".repeat(50) + "\n" +
+                                                errorMessage + "\n\n" +
+                                                "💡 SUGERENCIA: Revise la línea indicada\n" +
+                                                "=".repeat(50));
+                        } else {
+                            consoleTextPane.setText("❌ Error durante el análisis:\n" + 
+                                                "=".repeat(50) + "\n" +
+                                                ex.getMessage() + "\n" +
+                                                "=".repeat(50));
+                        }
                         toggleConsola();
+                        ex.printStackTrace();
                     }
                 }
             }

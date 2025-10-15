@@ -9,62 +9,93 @@ public class Lexer {
     private final List<Token> tokens = new ArrayList<>();
     
     private static final Pattern[] PATTERNS = {
-        Pattern.compile("^\\d+\\.\\d+"), // NUMBER (float)
-        Pattern.compile("^\\d+"),        // NUMBER (int)
-        Pattern.compile("^f\"[^\"]*\""), // FORMATTED_STRING
-        Pattern.compile("^\"[^\"]*\""),  // STRING
-        Pattern.compile("^'[^']*'"),     // CHAR
-        Pattern.compile("^\\+\\+"),      // INCREMENT
-        Pattern.compile("^--"),          // DECREMENT
-        Pattern.compile("^<="),          // LESS_EQUAL
-        Pattern.compile("^>="),          // GREATER_EQUAL
-        Pattern.compile("^=="),          // EQUALS
-        Pattern.compile("^!="),          // NOT_EQUALS
-        Pattern.compile("^&&"),          // AND
-        Pattern.compile("^\\|\\|"),      // OR
-        Pattern.compile("^print\\b"),    // PRINT
-        Pattern.compile("^println\\b"),  // PRINTLN
-        Pattern.compile("^input\\b"),    // INPUT
-        Pattern.compile("^if\\b"),       // IF
-        Pattern.compile("^else\\b"),     // ELSE
-        Pattern.compile("^while\\b"),    // WHILE
-        Pattern.compile("^for\\b"),      // FOR
-        Pattern.compile("^do\\b"),       // DO
-        Pattern.compile("^break\\b"),    // BREAK
-        Pattern.compile("^return\\b"),   // RETURN
-        Pattern.compile("^function\\b"), // FUNCTION
-        Pattern.compile("^true\\b"),     // TRUE
-        Pattern.compile("^false\\b"),    // FALSE
+        Pattern.compile("^f\"[^\"]*\""),     // FORMATTED_STRING - f"..."
+        Pattern.compile("^\"[^\"]*\""),      // STRING normal - "..."
+        Pattern.compile("^\\d+\\.\\d+"),     // NUMBER (float)
+        Pattern.compile("^\\d+"),            // NUMBER (int)
+        Pattern.compile("^'[^']*'"),         // CHAR
+        Pattern.compile("^\\+\\+"),          // INCREMENT
+        Pattern.compile("^--"),              // DECREMENT
+        Pattern.compile("^<="),              // LESS_EQUAL
+        Pattern.compile("^>="),              // GREATER_EQUAL
+        Pattern.compile("^=="),              // EQUALS
+        Pattern.compile("^!="),              // NOT_EQUALS
+        Pattern.compile("^&&"),              // AND
+        Pattern.compile("^\\|\\|"),          // OR
+        Pattern.compile("^print\\b"),        // PRINT
+        Pattern.compile("^println\\b"),      // PRINTLN
+        Pattern.compile("^input\\b"),        // INPUT
+        Pattern.compile("^if\\b"),           // IF
+        Pattern.compile("^else\\b"),         // ELSE
+        Pattern.compile("^while\\b"),        // WHILE
+        Pattern.compile("^for\\b"),          // FOR
+        Pattern.compile("^do\\b"),           // DO
+        Pattern.compile("^break\\b"),        // BREAK
+        Pattern.compile("^return\\b"),       // RETURN
+        Pattern.compile("^function\\b"),     // FUNCTION
+        Pattern.compile("^true\\b"),         // TRUE
+        Pattern.compile("^false\\b"),        // FALSE
         Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*"), // IDENTIFIER
-        Pattern.compile("^\\+"),         // PLUS
-        Pattern.compile("^-"),           // MINUS
-        Pattern.compile("^\\*"),         // MULTIPLY
-        Pattern.compile("^/"),           // DIVIDE
-        Pattern.compile("^%"),           // MODULO
-        Pattern.compile("^="),           // ASSIGN
-        Pattern.compile("^<"),           // LESS
-        Pattern.compile("^>"),           // GREATER
-        Pattern.compile("^!"),           // NOT
-        Pattern.compile("^\\("),         // LPAREN
-        Pattern.compile("^\\)"),         // RPAREN
-        Pattern.compile("^\\{"),         // LBRACE
-        Pattern.compile("^\\}"),         // RBRACE
-        Pattern.compile("^;"),           // SEMICOLON
-        Pattern.compile("^,")            // COMMA
+        Pattern.compile("^\\+"),             // PLUS
+        Pattern.compile("^-"),               // MINUS
+        Pattern.compile("^\\*"),             // MULTIPLY
+        Pattern.compile("^/"),               // DIVIDE
+        Pattern.compile("^%"),               // MODULO
+        Pattern.compile("^="),               // ASSIGN
+        Pattern.compile("^<"),               // LESS
+        Pattern.compile("^>"),               // GREATER
+        Pattern.compile("^!"),               // NOT
+        Pattern.compile("^\\("),             // LPAREN
+        Pattern.compile("^\\)"),             // RPAREN
+        Pattern.compile("^\\{"),             // LBRACE
+        Pattern.compile("^\\}"),             // RBRACE
+        Pattern.compile("^;"),               // SEMICOLON
+        Pattern.compile("^,")                // COMMA
     };
     
     private static final TokenType[] TOKEN_TYPES = {
-        TokenType.NUMBER, TokenType.NUMBER, TokenType.FORMATTED_STRING, 
-        TokenType.STRING, TokenType.CHAR, TokenType.INCREMENT, TokenType.DECREMENT,
-        TokenType.LESS_EQUAL, TokenType.GREATER_EQUAL, TokenType.EQUALS, 
-        TokenType.NOT_EQUALS, TokenType.AND, TokenType.OR, TokenType.PRINT,
-        TokenType.PRINTLN, TokenType.INPUT, TokenType.IF, TokenType.ELSE,
-        TokenType.WHILE, TokenType.FOR, TokenType.DO, TokenType.BREAK,
-        TokenType.RETURN, TokenType.FUNCTION, TokenType.TRUE, TokenType.FALSE,
-        TokenType.IDENTIFIER, TokenType.PLUS, TokenType.MINUS, TokenType.MULTIPLY,
-        TokenType.DIVIDE, TokenType.MODULO, TokenType.ASSIGN, TokenType.LESS,
-        TokenType.GREATER, TokenType.NOT, TokenType.LPAREN, TokenType.RPAREN,
-        TokenType.LBRACE, TokenType.RBRACE, TokenType.SEMICOLON, TokenType.COMMA
+        TokenType.FORMATTED_STRING,          // f"..."
+        TokenType.STRING,                    // "..."
+        TokenType.NUMBER, 
+        TokenType.NUMBER,
+        TokenType.CHAR,
+        TokenType.INCREMENT, 
+        TokenType.DECREMENT,
+        TokenType.LESS_EQUAL, 
+        TokenType.GREATER_EQUAL, 
+        TokenType.EQUALS, 
+        TokenType.NOT_EQUALS, 
+        TokenType.AND, 
+        TokenType.OR, 
+        TokenType.PRINT,
+        TokenType.PRINTLN, 
+        TokenType.INPUT, 
+        TokenType.IF, 
+        TokenType.ELSE,
+        TokenType.WHILE, 
+        TokenType.FOR, 
+        TokenType.DO, 
+        TokenType.BREAK,
+        TokenType.RETURN, 
+        TokenType.FUNCTION, 
+        TokenType.TRUE, 
+        TokenType.FALSE,
+        TokenType.IDENTIFIER, 
+        TokenType.PLUS, 
+        TokenType.MINUS, 
+        TokenType.MULTIPLY,
+        TokenType.DIVIDE, 
+        TokenType.MODULO, 
+        TokenType.ASSIGN, 
+        TokenType.LESS,
+        TokenType.GREATER, 
+        TokenType.NOT, 
+        TokenType.LPAREN, 
+        TokenType.RPAREN,
+        TokenType.LBRACE, 
+        TokenType.RBRACE, 
+        TokenType.SEMICOLON, 
+        TokenType.COMMA
     };
     
     public Lexer(String sourceCode) {

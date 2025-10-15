@@ -1,5 +1,3 @@
-
-import java.util.*;
 import java.util.*;
 
 public class Parser {
@@ -21,8 +19,18 @@ public class Parser {
         if (token != null && token.type == expected) {
             position++;
         } else {
-            throw new RuntimeException("Se esperaba " + expected + 
-                ", se encontró " + (token != null ? token.type : "EOF"));
+            String mensajeError;
+            if (token == null) {
+                mensajeError = String.format("❌ Error: Se esperaba %s pero se alcanzó el final del archivo", expected);
+            } else {
+                mensajeError = String.format(
+                    "❌ Error en línea %d: Se esperaba %s, se encontró %s",
+                    token.line,
+                    expected,
+                    token.type
+                );
+            }
+            throw new RuntimeException(mensajeError);
         }
     }
     
@@ -31,7 +39,7 @@ public class Parser {
             program();
             return output.toString();
         } catch (Exception e) {
-            return "❌ Error: " + e.getMessage();
+            return "❌ " + e.getMessage();
         }
     }
     
@@ -191,7 +199,7 @@ public class Parser {
             case IDENTIFIER:
                 eat(TokenType.IDENTIFIER);
                 if (!symbolTable.containsKey(token.value)) {
-                    throw new RuntimeException("Variable no declarada: " + token.value);
+                    throw new RuntimeException("❌ Error en línea " + token.line + ": Variable '" + token.value + "' no declarada");
                 }
                 return symbolTable.get(token.value);
                 
@@ -200,19 +208,16 @@ public class Parser {
                 if (token.value.contains(".")) {
                     return Double.parseDouble(token.value);
                 } else {
-                    return Integer.parseInt(token.value); // ✅ Mantener como int
+                    return Integer.parseInt(token.value);
                 }
                 
             case STRING:
                 eat(TokenType.STRING);
-                String strValue = token.value.substring(1, token.value.length() - 1);
-                // ✅ Interpolación básica de strings
-                return interpolateString(strValue);
+                return token.value.substring(1, token.value.length() - 1);
                 
             case FORMATTED_STRING:
                 eat(TokenType.FORMATTED_STRING);
-                String formattedStr = token.value.substring(2, token.value.length() - 1); // Quitar f""
-                return interpolateString(formattedStr);
+                return interpolateFormattedString(token.value);
                 
             case TRUE:
                 eat(TokenType.TRUE);
@@ -229,32 +234,9 @@ public class Parser {
                 return result;
                 
             default:
-                throw new RuntimeException("Expresión inválida: " + token);
+                throw new RuntimeException("❌ Error en línea " + token.line + ": Expresión inválida: " + token);
         }
     }
-
-    private String interpolateString(String str) {
-    StringBuilder result = new StringBuilder();
-    int i = 0;
-    while (i < str.length()) {
-        if (str.charAt(i) == '{' && i + 1 < str.length()) {
-            int end = str.indexOf('}', i + 1);
-            if (end != -1) {
-                String varName = str.substring(i + 1, end).trim();
-                if (symbolTable.containsKey(varName)) {
-                    result.append(symbolTable.get(varName));
-                } else {
-                    result.append("{").append(varName).append("}");
-                }
-                i = end + 1;
-                continue;
-            }
-        }
-        result.append(str.charAt(i));
-        i++;
-    }
-    return result.toString();
-}
     
     private boolean isComparisonOperator(TokenType type) {
         return type == TokenType.EQUALS || type == TokenType.NOT_EQUALS ||
@@ -319,10 +301,33 @@ public class Parser {
             List<Object> values = new ArrayList<>();
             
             if (currentToken().type != TokenType.RPAREN) {
-                values.add(expression());
+                if (currentToken().type == TokenType.FORMATTED_STRING) {
+                    Token strToken = currentToken();
+                    eat(TokenType.FORMATTED_STRING);
+                    String formattedValue = interpolateFormattedString(strToken.value);
+                    values.add(formattedValue);
+                } else if (currentToken().type == TokenType.STRING) {
+                    Token strToken = currentToken();
+                    eat(TokenType.STRING);
+                    values.add(strToken.value.substring(1, strToken.value.length() - 1));
+                } else {
+                    values.add(expression());
+                }
+                
                 while (currentToken().type == TokenType.COMMA) {
                     eat(TokenType.COMMA);
-                    values.add(expression());
+                    if (currentToken().type == TokenType.FORMATTED_STRING) {
+                        Token strToken = currentToken();
+                        eat(TokenType.FORMATTED_STRING);
+                        String formattedValue = interpolateFormattedString(strToken.value);
+                        values.add(formattedValue);
+                    } else if (currentToken().type == TokenType.STRING) {
+                        Token strToken = currentToken();
+                        eat(TokenType.STRING);
+                        values.add(strToken.value.substring(1, strToken.value.length() - 1));
+                    } else {
+                        values.add(expression());
+                    }
                 }
             }
             eat(TokenType.RPAREN);
@@ -332,12 +337,51 @@ public class Parser {
                 outputStr.append(value).append(" ");
             }
             
+            String finalOutput = outputStr.toString().trim();
             if (token.type == TokenType.PRINTLN) {
-                output.append("📤 Println: ").append(outputStr.toString().trim()).append("\n");
+                output.append("📤 Println: ").append(finalOutput).append("\n");
             } else {
-                output.append("📤 Print: ").append(outputStr.toString().trim()).append("\n");
+                output.append("📤 Print: ").append(finalOutput).append("\n");
             }
         }
+    }
+    
+    private String interpolateFormattedString(String formattedStr) {
+        String content = formattedStr.substring(2, formattedStr.length() - 1);
+        StringBuilder result = new StringBuilder();
+        int i = 0;
+        boolean hasVariables = false;
+        Token currentToken = currentToken();
+        
+        while (i < content.length()) {
+            if (content.charAt(i) == '{' && i + 1 < content.length()) {
+                int end = content.indexOf('}', i + 1);
+                if (end != -1) {
+                    String varName = content.substring(i + 1, end).trim();
+                    if (symbolTable.containsKey(varName)) {
+                        result.append(symbolTable.get(varName));
+                        hasVariables = true;
+                    } else {
+                        throw new RuntimeException("❌ Error en línea " + (currentToken != null ? currentToken.line : 0) + 
+                                               ": Variable '" + varName + "' no declarada en string formateado");
+                    }
+                    i = end + 1;
+                    continue;
+                } else {
+                    throw new RuntimeException("❌ Error en línea " + (currentToken != null ? currentToken.line : 0) + 
+                                           ": Llave de cierre '}' faltante en string formateado");
+                }
+            }
+            result.append(content.charAt(i));
+            i++;
+        }
+        
+        if (!hasVariables) {
+            throw new RuntimeException("❌ Error en línea " + (currentToken != null ? currentToken.line : 0) + 
+                                   ": String formateado debe contener al menos una variable entre llaves { }");
+        }
+        
+        return result.toString();
     }
     
     private void conditional() {
@@ -349,17 +393,53 @@ public class Parser {
         
         output.append("🔍 Condición IF: ").append(condition).append("\n");
         
+        // Bloque IF
         if ((boolean)condition) {
-            while (currentToken() != null && currentToken().type != TokenType.RBRACE) {
+            while (currentToken() != null && 
+                currentToken().type != TokenType.RBRACE && 
+                currentToken().type != TokenType.EOF) {
                 instruction();
                 if (currentToken() != null && currentToken().type == TokenType.SEMICOLON) {
                     eat(TokenType.SEMICOLON);
                 }
             }
         } else {
-            skipBlock();
+            // Saltar bloque IF
+            skipToMatchingBrace();
         }
-        eat(TokenType.RBRACE);
+        
+        // Cerrar bloque IF
+        if (currentToken() != null && currentToken().type == TokenType.RBRACE) {
+            eat(TokenType.RBRACE);
+        }
+        
+        // Manejar ELSE
+        if (currentToken() != null && currentToken().type == TokenType.ELSE) {
+            eat(TokenType.ELSE);
+            eat(TokenType.LBRACE);
+            
+            output.append("🔍 Bloque ELSE\n");
+            
+            // Bloque ELSE
+            if (!(boolean)condition) {
+                while (currentToken() != null && 
+                    currentToken().type != TokenType.RBRACE && 
+                    currentToken().type != TokenType.EOF) {
+                    instruction();
+                    if (currentToken() != null && currentToken().type == TokenType.SEMICOLON) {
+                        eat(TokenType.SEMICOLON);
+                    }
+                }
+            } else {
+                // Saltar bloque ELSE
+                skipToMatchingBrace();
+            }
+            
+            // Cerrar bloque ELSE
+            if (currentToken() != null && currentToken().type == TokenType.RBRACE) {
+                eat(TokenType.RBRACE);
+            }
+        }
     }
     
     private void loop() {
@@ -381,7 +461,7 @@ public class Parser {
                     }
                 }
             } else {
-                skipBlock();
+                skipToMatchingBrace();
             }
             eat(TokenType.RBRACE);
         }
@@ -403,18 +483,25 @@ public class Parser {
         eat(TokenType.RPAREN);
         eat(TokenType.LBRACE);
         
-        skipBlock();
+        skipToMatchingBrace();
         eat(TokenType.RBRACE);
     }
     
-    private void skipBlock() {
+    // ✅ Método mejorado para saltar bloques
+    private void skipToMatchingBrace() {
         int braceCount = 1;
-        while (currentToken() != null && braceCount > 0) {
+        while (currentToken() != null && braceCount > 0 && currentToken().type != TokenType.EOF) {
             if (currentToken().type == TokenType.LBRACE) {
                 braceCount++;
             } else if (currentToken().type == TokenType.RBRACE) {
                 braceCount--;
             }
+            position++;
+        }
+    }
+
+    private void skipUntil(TokenType target) {
+        while (currentToken() != null && currentToken().type != target) {
             position++;
         }
     }

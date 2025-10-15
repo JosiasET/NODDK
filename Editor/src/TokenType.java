@@ -1,5 +1,3 @@
-
-
 public enum TokenType {
     // Palabras reservadas
     PRINT, PRINTLN, INPUT, IF, ELSE, WHILE, FOR, DO, BREAK, RETURN, FUNCTION,
