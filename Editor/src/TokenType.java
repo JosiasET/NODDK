@@ -1,7 +1,7 @@
 public enum TokenType {
     // Palabras reservadas
     PRINT, PRINTLN, INPUT, IF, ELSE, WHILE, FOR, DO, BREAK, RETURN, FUNCTION,
-    TRUE, FALSE,
+    TRUE, FALSE, SWITCH, CASE, DEFAULT,
     
     // Identificadores y literales
     IDENTIFIER, NUMBER, STRING, CHAR,
@@ -14,7 +14,7 @@ public enum TokenType {
     ASSIGN,
     
     // Delimitadores
-    LPAREN, RPAREN, LBRACE, RBRACE, SEMICOLON, COMMA,
+    LPAREN, RPAREN, LBRACE, RBRACE, SEMICOLON, COMMA, COLON,
     
     // Especiales
     FORMATTED_STRING, EOF

@@ -2,11 +2,12 @@ import java.util.*;
 import java.util.regex.*;
 
 public class Lexer {
-    private final String sourceCode;
+     private final String sourceCode;
     private int position = 0;
     private int line = 1;
     private int column = 1;
     private final List<Token> tokens = new ArrayList<>();
+    private final List<String> errors = new ArrayList<>();
     
     private static final Pattern[] PATTERNS = {
         Pattern.compile("^f\"[^\"]*\""),     // FORMATTED_STRING - f"..."
@@ -35,6 +36,10 @@ public class Lexer {
         Pattern.compile("^function\\b"),     // FUNCTION
         Pattern.compile("^true\\b"),         // TRUE
         Pattern.compile("^false\\b"),        // FALSE
+        Pattern.compile("^switch\\b"),       // SWITCH
+        Pattern.compile("^case\\b"),         // CASE
+        Pattern.compile("^default\\b"),      // DEFAULT
+        Pattern.compile("^:"),               // COLON
         Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*"), // IDENTIFIER
         Pattern.compile("^\\+"),             // PLUS
         Pattern.compile("^-"),               // MINUS
@@ -80,6 +85,10 @@ public class Lexer {
         TokenType.FUNCTION, 
         TokenType.TRUE, 
         TokenType.FALSE,
+        TokenType.SWITCH,                    // SWITCH
+        TokenType.CASE,                      // CASE  
+        TokenType.DEFAULT,                   // DEFAULT
+        TokenType.COLON,                     // COLON
         TokenType.IDENTIFIER, 
         TokenType.PLUS, 
         TokenType.MINUS, 
@@ -122,8 +131,20 @@ public class Lexer {
             }
             
             if (!matched) {
-                throw new RuntimeException("Carácter no reconocido: '" + 
-                    sourceCode.charAt(position) + "' en línea " + line + ", columna " + column);
+                // ✅ CORREGIDO: En lugar de lanzar excepción, agregar error y continuar
+                char problematicChar = sourceCode.charAt(position);
+                String errorMsg = "Carácter no reconocido: '" + problematicChar + 
+                                 "' en línea " + line + ", columna " + column;
+                errors.add(errorMsg);
+                
+                // Avanzar una posición para continuar
+                if (problematicChar == '\n') {
+                    line++;
+                    column = 1;
+                } else {
+                    column++;
+                }
+                position++;
             }
         }
         
@@ -131,6 +152,33 @@ public class Lexer {
         return tokens;
     }
     
+    // ✅ NUEVO MÉTODO: Obtener todos los errores
+    public List<String> getErrors() {
+        return new ArrayList<>(errors);
+    }
+    
+    // ✅ NUEVO MÉTODO: Verificar si hay errores
+    public boolean hasErrors() {
+        return !errors.isEmpty();
+    }
+    
+    // ✅ NUEVO MÉTODO: Obtener errores como string formateado
+    public String getErrorsAsString() {
+        if (errors.isEmpty()) {
+            return "✅ No hay errores léxicos";
+        } else {
+            StringBuilder sb = new StringBuilder();
+            sb.append("❌ ERRORES LÉXICOS ENCONTRADOS (").append(errors.size()).append("):\n");
+            sb.append("=".repeat(60)).append("\n");
+            for (String error : errors) {
+                sb.append("• ").append(error).append("\n");
+            }
+            sb.append("=".repeat(60)).append("\n");
+            return sb.toString();
+        }
+    }
+    
+    // ... el resto de los métodos se mantienen igual ...
     private void skipWhitespace() {
         while (position < sourceCode.length() && 
                Character.isWhitespace(sourceCode.charAt(position))) {

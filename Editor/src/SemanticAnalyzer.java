@@ -14,12 +14,14 @@ public class SemanticAnalyzer {
     private Map<String, VariableInfo> symbolTable;
     private Set<String> errors;
     
+    
     // Nuevas estructuras para reglas adicionales
     private Set<String> initializedVariables;
     private Stack<String> scopeStack;
     private Map<String, Map<String, VariableInfo>> scopeSymbolTables;
     private int loopComplexity;
     private boolean hasReturnStatement;
+    private ErrorManager errorManager;
     
     // Límites de tipos de datos según especificación
     private static final int INT_MIN = -2147483648;
@@ -61,7 +63,7 @@ public class SemanticAnalyzer {
     }
     
     // Constructor
-    public SemanticAnalyzer() {
+    public SemanticAnalyzer(ErrorManager errorManager) {
         this.symbolTable = new HashMap<>();
         this.errors = new HashSet<>();
         this.initializedVariables = new HashSet<>();
@@ -69,6 +71,7 @@ public class SemanticAnalyzer {
         this.scopeSymbolTables = new HashMap<>();
         this.loopComplexity = 0;
         this.hasReturnStatement = false;
+        this.errorManager = errorManager;
         
         // Inicializar scope global
         enterScope("global");
@@ -80,6 +83,8 @@ public class SemanticAnalyzer {
         scopeStack.push(scopeName);
         scopeSymbolTables.put(scopeName, new HashMap<>());
     }
+
+   
     
     public void exitScope() {
         if (!scopeStack.isEmpty()) {
@@ -106,9 +111,9 @@ public class SemanticAnalyzer {
     
     public String inferTypeFromValue(Object value, int line) {
         if (value instanceof Integer) {
-            return inferIntegerType((Integer) value, line);
-        } else if (value instanceof Float) {
-            return inferFloatType((Float) value, line);
+            return "int";
+        } else if (value instanceof Float || value instanceof Double) {
+            return "float";
         } else if (value instanceof Character) {
             checkCharLimits((Character) value, line);
             return "char";
@@ -118,7 +123,8 @@ public class SemanticAnalyzer {
             checkStringLimits((String) value, line);
             return "String";
         }
-        return "unknown";
+        addError("Línea " + line + ": Tipo de dato no reconocido: " + value);
+        return "error";
     }
     
     private String inferIntegerType(int value, int line) {
@@ -268,7 +274,7 @@ public class SemanticAnalyzer {
     // ==================== REGLA 3: ASIGNACIÓN DE VARIABLES ====================
     
     public boolean checkAssignment(String identifier, Object value, int line) {
-        // CORREGIDO: Si la variable no existe, crearla automáticamente
+        // ✅ Si la variable no existe, crearla automáticamente
         if (!symbolTable.containsKey(identifier)) {
             String inferredType = inferTypeFromValue(value, line);
             if (inferredType.equals("error")) {
@@ -297,9 +303,9 @@ public class SemanticAnalyzer {
             return false;
         }
         
-        // CORREGIDO: Compatibilidad de tipos ESTRICTA - NO permite int → float
+        // Compatibilidad de tipos ESTRICTA
         if (!checkTypeCompatibilityStrict(varInfo.type, inferredType, line)) {
-            addError("Línea " + line + ": Incompatibilidad de tipos. Esperado: " + 
+            addError("Línea " + line + ": Incompatibilidad de tipos en asignación. Esperado: " + 
                     varInfo.type + ", Obtenido: " + inferredType);
             return false;
         }
@@ -307,9 +313,9 @@ public class SemanticAnalyzer {
         // Verificar límites
         checkValueLimits(varInfo.type, value, line);
         
-        // CORREGIDO: Actualizar valor Y marcar como inicializada
+        // ✅ ACTUALIZAR valor Y marcar como inicializada (REASIGNACIÓN)
         varInfo.value = value;
-        initializedVariables.add(identifier); // IMPORTANTE: Marcar como inicializada
+        initializedVariables.add(identifier);
         
         return true;
     }
@@ -318,7 +324,7 @@ public class SemanticAnalyzer {
      * CORREGIDO: Verificación ESTRICTA de tipos - NO permite promoción automática
      */
     private boolean checkTypeCompatibilityStrict(String expected, String actual, int line) {
-        // SOLO mismo tipo
+        // ✅ SOLO mismo tipo - NO promoción automática
         return expected.equals(actual);
     }
     
@@ -419,7 +425,8 @@ public class SemanticAnalyzer {
         
         // Concatenación de strings
         if (operator.equals("+") && (leftType.equals("String") || rightType.equals("String"))) {
-            return true; // Strings se pueden concatenar
+            // ✅ Permitir concatenación de strings con otros tipos
+            return true;
         }
         
         // No se pueden operar booleanos en operaciones aritméticas
@@ -428,7 +435,7 @@ public class SemanticAnalyzer {
             return false;
         }
         
-        // CORREGIDO: Solo operaciones entre tipos EXACTAMENTE iguales - NO promoción
+        // ✅ CORREGIDO: Verificación ESTRICTA - SOLO mismo tipo
         if (!areSameTypeStrict(leftType, rightType)) {
             addError("Línea " + line + ": No se puede operar " + leftType + " con " + rightType + 
                     ". Los tipos deben ser exactamente iguales.");
@@ -443,11 +450,13 @@ public class SemanticAnalyzer {
         
         return true;
     }
+
     
     /**
      * CORREGIDO: Verificación ESTRICTA de tipos iguales
      */
     private boolean areSameTypeStrict(String type1, String type2) {
+        // ✅ SOLO retorna true si son EXACTAMENTE el mismo tipo
         return type1.equals(type2);
     }
     
@@ -498,7 +507,7 @@ public class SemanticAnalyzer {
             return null;
         }
         
-        // Solo operaciones entre tipos EXACTAMENTE iguales
+        // ✅ CORREGIDO: Verificación ESTRICTA - SOLO mismo tipo
         if (!areSameTypeStrict(leftType, rightType)) {
             addError("Línea " + line + ": No se puede operar " + leftType + " con " + rightType + 
                     ". Los tipos deben ser exactamente iguales.");
@@ -536,6 +545,12 @@ public class SemanticAnalyzer {
     private Object performOperation(Object left, Object right, String operator, 
                                    String leftType, String rightType, int line) {
         try {
+            // ✅ VERIFICACIÓN ADICIONAL: Asegurar que los tipos son iguales
+            if (!leftType.equals(rightType)) {
+                addError("Línea " + line + ": Tipos incompatibles: " + leftType + " y " + rightType);
+                return null;
+            }
+            
             String resultType = leftType;
             
             switch (operator) {
@@ -728,7 +743,7 @@ public class SemanticAnalyzer {
         return true;
     }
     
-    private boolean isReservedWord(String identifier) {
+    public boolean isReservedWord(String identifier) {
         Set<String> reservedWords = Set.of(
             "if", "else", "while", "for", "do", "break", "return", 
             "function", "true", "false", "input", "print", "println"
@@ -736,16 +751,49 @@ public class SemanticAnalyzer {
         return reservedWords.contains(identifier);
     }
     
+    
+
     /**
      * CORREGIDO: Método público para agregar errores
      */
     public void addError(String error) {
         errors.add(error);
         System.err.println("❌ " + error);
+        
     }
     
+    
+    private String extractDetailsFromError(String error) {
+        // Remover "Línea X: " del mensaje si está presente
+        if (error.contains("Línea") && error.contains(":")) {
+            String[] parts = error.split(":", 2);
+            if (parts.length > 1) {
+                return parts[1].trim();
+            }
+        }
+        return error;
+    }
+
+    private int extractLineFromError(String error) {
+        try {
+            // Buscar "Línea X:" en el mensaje de error
+            if (error.contains("Línea")) {
+                String[] parts = error.split("Línea ");
+                if (parts.length > 1) {
+                    String linePart = parts[1].split(":")[0];
+                    return Integer.parseInt(linePart.trim());
+                }
+            }
+        } catch (Exception e) {
+            // Si no podemos extraer la línea, usar 1 por defecto
+        }
+        return 1;
+    }
+
     /**
      * NUEVO: Obtener valor por defecto para un tipo
+    
+    
      */
     private Object getDefaultValue(String type) {
         switch (type) {
@@ -855,4 +903,6 @@ public class SemanticAnalyzer {
     public Map<String, VariableInfo> getSymbolTable() {
         return new HashMap<>(symbolTable);
     }
+    
 }
+

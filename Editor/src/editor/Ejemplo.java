@@ -5,11 +5,17 @@ import java.util.Scanner;
 public class Ejemplo {
     public static void main(String[] args) {
         
-        int numero = 1;
-        int numero2 = 2;
-        
-        int suma = (10*10)+ numero2;
-
-        System.out.println(suma);
+        int num = 2;
+        switch (num) {
+            case 1:
+                System.out.println("Hola");
+                break;
+            case 2:
+                System.out.println("Hola2");
+                break;
+            default:
+                System.out.println("Emir");
+                break;
+        }
     }
 }

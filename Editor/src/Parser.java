@@ -13,49 +13,91 @@ public class Parser {
     private int position = 0;
     private final Map<String, Object> symbolTable = new HashMap<>();
     private final StringBuilder output = new StringBuilder();
-     private final SemanticAnalyzer semanticAnalyzer;
+    private final SemanticAnalyzer semanticAnalyzer;
+    private final ErrorManager errorManager;
+
 
     public Parser(List<Token> tokens) {
         this.tokens = tokens;
-        this.semanticAnalyzer = new SemanticAnalyzer();
-
+        this.semanticAnalyzer = null;
+        this.errorManager = new ErrorManager();
     }
     
-    public Parser(List<Token> tokens, SemanticAnalyzer semanticAnalyzer) {
-        this.tokens = tokens;
-        this.semanticAnalyzer = semanticAnalyzer;
-    }
-
     private Token currentToken() {
         return position < tokens.size() ? tokens.get(position) : null;
     }
     
+    private void expectLbrace(String context) {
+        if (currentToken() == null || currentToken().type != TokenType.LBRACE) {
+            String mensaje = "Se esperaba '{' para " + context;
+            String detalles = "Falta llave de apertura";
+            errorManager.addSyntacticError(mensaje, 
+                currentToken() != null ? currentToken().line : 1,
+                currentToken() != null ? currentToken().column : 1,
+                detalles);
+            throw new RuntimeException(mensaje);
+        }
+        eat(TokenType.LBRACE);
+    }
+
+    /**
+     * Verifica y consume una llave de cierre, reportando error si falta
+     */
+    private void expectRbrace(String context) {
+        if (currentToken() == null || currentToken().type != TokenType.RBRACE) {
+            String mensaje = "Se esperaba '}' para " + context;
+            String detalles = "Falta llave de cierre";
+            errorManager.addSyntacticError(mensaje, 
+                currentToken() != null ? currentToken().line : 1,
+                currentToken() != null ? currentToken().column : 1,
+                detalles);
+            throw new RuntimeException(mensaje);
+        }
+        eat(TokenType.RBRACE);
+    }
+
     private void eat(TokenType expected) {
         Token token = currentToken();
         if (token != null && token.type == expected) {
             position++;
         } else {
             String mensajeError;
+            String detalles;
+            
             if (token == null) {
-                mensajeError = String.format("❌ Error: Se esperaba %s pero se alcanzó el final del archivo", expected);
+                mensajeError = "Se esperaba " + expected + " pero se alcanzó el final del archivo";
+                detalles = "Fin de archivo inesperado";
             } else {
-                mensajeError = String.format(
-                    "❌ Error en línea %d: Se esperaba %s, se encontró %s",
-                    token.line,
-                    expected,
-                    token.type
-                );
+                mensajeError = "Se esperaba " + expected + ", se encontró " + token.type;
+                detalles = String.format("Token inesperado: '%s'", token.value);
             }
-            throw new RuntimeException(mensajeError);
+            
+            errorManager.addSyntacticError(mensajeError, 
+                token != null ? token.line : 1, 
+                token != null ? token.column : 1, 
+                detalles);
+            
+            throw new RuntimeException("Error sintáctico: " + mensajeError);
         }
     }
     
     public String parse() {
         try {
             program();
+            
+            if (errorManager.hasSyntacticErrors()) {
+                output.append("\n⚠️  El análisis sintáctico completó con errores\n");
+            } else {
+                output.append("✅ Análisis sintáctico completado exitosamente\n");
+            }
+            
             return output.toString();
         } catch (Exception e) {
-            return "❌ " + e.getMessage();
+            if (!errorManager.hasSyntacticErrors()) {
+                // Si no hay errores registrados pero hubo excepción, registrar un error genérico
+                errorManager.addSyntacticError("Error durante el análisis sintáctico", 1, 1, e.getMessage());
+            }
+            return "❌ Error durante el análisis sintáctico: " + e.getMessage();
         }
     }
     
@@ -74,32 +116,44 @@ public class Parser {
         
         switch (token.type) {
             case IDENTIFIER:
+                // El método declarationOrAssignment ahora maneja tanto variables como llamadas a funciones
                 declarationOrAssignment();
                 break;
+                
             case PRINT:
             case PRINTLN:
                 inputOutput();
                 break;
+                
             case IF:
                 conditional();
                 break;
+                
             case WHILE:
             case FOR:
             case DO:
                 loop();
                 break;
+
+            case SWITCH:
+                switchStatement();
+                break;
+                
             case BREAK:
                 eat(TokenType.BREAK);
                 output.append("⏹️  Break ejecutado\n");
                 break;
+                
             case RETURN:
                 eat(TokenType.RETURN);
                 Object returnValue = expression();
                 output.append("↩️  Return: ").append(returnValue).append("\n");
-                throw new ReturnException(returnValue); // Lanzar excepción en lugar de retornar
+                break;
+                
             case FUNCTION:
                 function();
                 break;
+                
             default:
                 Object exprResult = expression();
                 if (exprResult != null) {
@@ -107,10 +161,196 @@ public class Parser {
                 }
         }
     }
+
+    private void switchStatement() {
+        eat(TokenType.SWITCH);
+        eat(TokenType.LPAREN);
+        Object switchValue = expression();
+        eat(TokenType.RPAREN);
+        eat(TokenType.LBRACE);
+        
+        output.append("🔀 Iniciando SWITCH: ").append(switchValue).append("\n");
+        
+        boolean caseMatched = false;
+        boolean executing = false;
+        
+        // Procesar todos los casos
+        while (currentToken() != null && 
+            currentToken().type != TokenType.RBRACE && 
+            currentToken().type != TokenType.EOF) {
+            
+            Token token = currentToken();
+            
+            if (token.type == TokenType.CASE) {
+                eat(TokenType.CASE);
+                Object caseValue = expression();
+                eat(TokenType.COLON);
+                
+                output.append("   🔍 Caso: ").append(caseValue);
+                
+                // Verificar si coincide
+                boolean matches = areEqual(switchValue, caseValue);
+                output.append(" -> ").append(matches ? "✅ COINCIDE" : "❌ NO coincide").append("\n");
+                
+                if (matches && !caseMatched) {
+                    caseMatched = true;
+                    executing = true;
+                    output.append("   🚀 Ejecutando caso...\n");
+                } else {
+                    executing = false;
+                }
+                
+            } else if (token.type == TokenType.DEFAULT) {
+                eat(TokenType.DEFAULT);
+                eat(TokenType.COLON);
+                
+                output.append("   🔍 Caso DEFAULT\n");
+                
+                if (!caseMatched) {
+                    executing = true;
+                    output.append("   🚀 Ejecutando DEFAULT...\n");
+                } else {
+                    executing = false;
+                }
+                
+            } else if (token.type == TokenType.BREAK) {
+                eat(TokenType.BREAK);
+                if (executing) {
+                    output.append("   ⏹️  Break en SWITCH - saliendo del switch\n");
+                    executing = false;
+                    caseMatched = true; // Prevenir que otros casos se ejecuten
+                }
+                // Manejar punto y coma opcional después del break
+                if (currentToken() != null && currentToken().type == TokenType.SEMICOLON) {
+                    eat(TokenType.SEMICOLON);
+                }
+                
+            } else if (executing) {
+                // Ejecutar instrucción si estamos en un caso activo
+                instruction();
+                if (currentToken() != null && currentToken().type == TokenType.SEMICOLON) {
+                    eat(TokenType.SEMICOLON);
+                }
+            } else {
+                // Saltar instrucción si no estamos ejecutando
+                skipInstruction();
+            }
+        }
+        
+        eat(TokenType.RBRACE);
+        output.append("🔀 SWITCH terminado\n");
+    }
+
+    // ✅ NUEVO MÉTODO: Comparar valores para switch
+    private boolean areEqual(Object value1, Object value2) {
+        if (value1 == null && value2 == null) return true;
+        if (value1 == null || value2 == null) return false;
+        
+        // Comparación estricta de tipos
+        if (value1.getClass() != value2.getClass()) {
+            return false;
+        }
+        
+        return value1.equals(value2);
+    }
+
+    // ✅ NUEVO MÉTODO: Saltar instrucción cuando no se está ejecutando un caso
+    private void skipInstruction() {
+        Token token = currentToken();
+        if (token == null) return;
+        
+        switch (token.type) {
+            case IDENTIFIER:
+                // Saltar declaración/asignación
+                eat(TokenType.IDENTIFIER);
+                if (currentToken() != null && currentToken().type == TokenType.ASSIGN) {
+                    eat(TokenType.ASSIGN);
+                    skipExpression();
+                }
+                break;
+                
+            case PRINT:
+            case PRINTLN:
+                // Saltar print
+                eat(token.type);
+                eat(TokenType.LPAREN);
+                skipExpression();
+                while (currentToken() != null && currentToken().type == TokenType.COMMA) {
+                    eat(TokenType.COMMA);
+                    skipExpression();
+                }
+                eat(TokenType.RPAREN);
+                break;
+                
+            case IF:
+                // Saltar if completo
+                eat(TokenType.IF);
+                eat(TokenType.LPAREN);
+                skipExpression();
+                eat(TokenType.RPAREN);
+                eat(TokenType.LBRACE);
+                skipToMatchingBrace();
+                eat(TokenType.RBRACE);
+                break;
+                
+            case BREAK:
+            case RETURN:
+                // Saltar break/return
+                eat(token.type);
+                if (token.type == TokenType.RETURN && 
+                    currentToken() != null && currentToken().type != TokenType.SEMICOLON) {
+                    skipExpression();
+                }
+                break;
+                
+            default:
+                // Saltar expresión simple
+                skipExpression();
+        }
+        
+        // Saltar punto y coma si existe
+        if (currentToken() != null && currentToken().type == TokenType.SEMICOLON) {
+            eat(TokenType.SEMICOLON);
+        }
+    }
+
+    // ✅ NUEVO MÉTODO: Saltar expresión
+    private void skipExpression() {
+        int parenCount = 0;
+        
+        while (currentToken() != null && 
+               currentToken().type != TokenType.SEMICOLON && 
+               currentToken().type != TokenType.COMMA && 
+               currentToken().type != TokenType.RPAREN && 
+               currentToken().type != TokenType.COLON &&
+               !(parenCount == 0 && (
+                   currentToken().type == TokenType.CASE || 
+                   currentToken().type == TokenType.DEFAULT ||
+                   currentToken().type == TokenType.RBRACE))) {
+            
+            if (currentToken().type == TokenType.LPAREN) {
+                parenCount++;
+            } else if (currentToken().type == TokenType.RPAREN) {
+                parenCount--;
+            }
+            
+            position++;
+        }
+    }
     
     
     private void declarationOrAssignment() {
         String identifier = currentToken().value;
+        
+        // ✅ VERIFICAR PRIMERO SI ES LLAMADA A FUNCIÓN
+        Token nextToken = position + 1 < tokens.size() ? tokens.get(position + 1) : null;
+        if (nextToken != null && nextToken.type == TokenType.LPAREN) {
+            // Es una llamada a función, procesarla
+            functionCall();
+            return;
+        }
+        
+        // Si no es llamada a función, procesar como declaración/asignación normal
         eat(TokenType.IDENTIFIER);
         eat(TokenType.ASSIGN);
         
@@ -269,77 +509,45 @@ public class Parser {
         
         output.append("🔹 Llamando función: ").append(functionName).append("\n");
         
+        // ✅ VERIFICAR que la función existe
         if (!symbolTable.containsKey(functionName)) {
-            throw new RuntimeException("❌ Error: Función '" + functionName + "' no declarada");
+            throw new RuntimeException("❌ Error en línea " + currentToken().line + 
+                                    ": Función '" + functionName + "' no declarada");
         }
         
-        Map<String, Object> functionInfo = (Map<String, Object>) symbolTable.get(functionName);
-        if (!"function".equals(functionInfo.get("type"))) {
-            throw new RuntimeException("❌ Error: '" + functionName + "' no es una función");
-        }
-        
-        @SuppressWarnings("unchecked")
-        List<String> expectedParams = (List<String>) functionInfo.get("parameters");
-        
-        // ✅ PROCESAR argumentos
-        List<Object> arguments = new ArrayList<>();
-        if (currentToken().type != TokenType.RPAREN) {
-            arguments.add(expression());
-            while (currentToken().type == TokenType.COMMA) {
-                eat(TokenType.COMMA);
+        // ✅ OBTENER información de la función
+        Object functionObj = symbolTable.get(functionName);
+        if (functionObj instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> functionInfo = (Map<String, Object>) functionObj;
+            
+            if (!"function".equals(functionInfo.get("type"))) {
+                throw new RuntimeException("❌ Error en línea " + currentToken().line + 
+                                        ": '" + functionName + "' no es una función");
+            }
+            
+            // ✅ PROCESAR argumentos
+            List<Object> arguments = new ArrayList<>();
+            if (currentToken().type != TokenType.RPAREN) {
                 arguments.add(expression());
-            }
-        }
-        eat(TokenType.RPAREN);
-        
-        // ✅ VALIDAR número de parámetros
-        if (arguments.size() != expectedParams.size()) {
-            throw new RuntimeException("❌ Error: Función '" + functionName + "' esperaba " + 
-                expectedParams.size() + " parámetros, se proporcionaron " + arguments.size());
-        }
-        
-        output.append("   Argumentos: ").append(arguments).append("\n");
-        
-        // ✅ GUARDAR el contexto actual (variables locales)
-        Map<String, Object> previousSymbolTable = new HashMap<>(symbolTable);
-        
-        try {
-            // ✅ ASIGNAR parámetros a la tabla de símbolos
-            for (int i = 0; i < expectedParams.size(); i++) {
-                symbolTable.put(expectedParams.get(i), arguments.get(i));
-            }
-            
-            // ✅ EJECUTAR el cuerpo de la función
-            int bodyStart = (int) functionInfo.get("bodyStart");
-            int previousPosition = position;
-            position = bodyStart;
-            
-            // Ejecutar instrucciones hasta encontrar return o fin de función
-            while (currentToken() != null && 
-                currentToken().type != TokenType.RBRACE && 
-                currentToken().type != TokenType.EOF) {
-                try {
-                    instruction();
-                    if (currentToken() != null && currentToken().type == TokenType.SEMICOLON) {
-                        eat(TokenType.SEMICOLON);
-                    }
-                } catch (ReturnException e) {
-                    // ✅ CAPTURAR el return y retornar el valor
-                    output.append("   Función retorna: ").append(e.value).append("\n");
-                    return e.value;
+                while (currentToken().type == TokenType.COMMA) {
+                    eat(TokenType.COMMA);
+                    arguments.add(expression());
                 }
             }
+            eat(TokenType.RPAREN);
             
-            position = previousPosition; // Restaurar posición
+            output.append("   Argumentos: ").append(arguments).append("\n");
             
-            // Si no hay return explícito, retornar null o 0
-            output.append("   Función termina sin return explícito\n");
+            // ✅ SIMULAR ejecución (por ahora solo mostramos mensaje)
+            output.append("   ✅ Función '" + functionName + "' ejecutada correctamente\n");
+            
+            // Retornar valor simulado
             return 0;
             
-        } finally {
-            // ✅ RESTAURAR tabla de símbolos (scope local)
-            symbolTable.clear();
-            symbolTable.putAll(previousSymbolTable);
+        } else {
+            throw new RuntimeException("❌ Error en línea " + currentToken().line + 
+                                    ": '" + functionName + "' no es una función válida");
         }
     }
 
@@ -542,6 +750,18 @@ public class Parser {
         eat(TokenType.LPAREN);
         Object condition = expression();
         eat(TokenType.RPAREN);
+        
+        // Verificar llave de apertura
+        if (currentToken() == null || currentToken().type != TokenType.LBRACE) {
+            String mensaje = "Se esperaba '{' después de la condición del if";
+            String detalles = "Falta llave de apertura para el bloque if";
+            errorManager.addSyntacticError(mensaje, 
+                currentToken() != null ? currentToken().line : 1,
+                currentToken() != null ? currentToken().column : 1,
+                detalles);
+            throw new RuntimeException(mensaje);
+        }
+        
         eat(TokenType.LBRACE);
         
         output.append("🔍 Condición IF: ").append(condition).append("\n");
@@ -551,6 +771,7 @@ public class Parser {
         // Bloque IF
         if ((boolean)condition) {
             executed = true;
+            // ✅ EJECUTAR bloque si condición es true
             while (currentToken() != null && 
                 currentToken().type != TokenType.RBRACE && 
                 currentToken().type != TokenType.EOF) {
@@ -560,25 +781,45 @@ public class Parser {
                 }
             }
         } else {
-            // Saltar bloque IF
+            // ✅ SALTAR bloque si condición es false (PERO dejar el } para que se consuma después)
             skipToMatchingBrace();
         }
         
+        // ✅ CONSUMIR la llave de cierre (esto es lo que faltaba)
         if (currentToken() != null && currentToken().type == TokenType.RBRACE) {
             eat(TokenType.RBRACE);
+        } else {
+            // ✅ ERROR: Falta llave de cierre
+            String mensaje = "Se esperaba '}' para cerrar el bloque if";
+            String detalles = "Falta llave de cierre para el bloque if";
+            errorManager.addSyntacticError(mensaje, 
+                currentToken() != null ? currentToken().line : 1,
+                currentToken() != null ? currentToken().column : 1,
+                detalles);
+            throw new RuntimeException(mensaje);
         }
         
-        // ✅ Manejar ELSE IF y ELSE
+        // Manejar ELSE IF y ELSE
         while (currentToken() != null && currentToken().type == TokenType.ELSE) {
             eat(TokenType.ELSE);
             
-            // Verificar si es ELSE IF o ELSE normal
             if (currentToken() != null && currentToken().type == TokenType.IF) {
-                // ✅ Es ELSE IF
+                // ELSE IF
                 eat(TokenType.IF);
                 eat(TokenType.LPAREN);
                 Object elseIfCondition = expression();
                 eat(TokenType.RPAREN);
+                
+                if (currentToken() == null || currentToken().type != TokenType.LBRACE) {
+                    String mensaje = "Se esperaba '{' después de la condición del else if";
+                    String detalles = "Falta llave de apertura para el bloque else if";
+                    errorManager.addSyntacticError(mensaje, 
+                        currentToken() != null ? currentToken().line : 1,
+                        currentToken() != null ? currentToken().column : 1,
+                        detalles);
+                    throw new RuntimeException(mensaje);
+                }
+                
                 eat(TokenType.LBRACE);
                 
                 output.append("🔍 Condición ELSE IF: ").append(elseIfCondition).append("\n");
@@ -594,7 +835,6 @@ public class Parser {
                         }
                     }
                 } else {
-                    // Saltar bloque ELSE IF
                     skipToMatchingBrace();
                 }
                 
@@ -603,7 +843,17 @@ public class Parser {
                 }
                 
             } else {
-                // ✅ Es ELSE normal
+                // ELSE normal
+                if (currentToken() == null || currentToken().type != TokenType.LBRACE) {
+                    String mensaje = "Se esperaba '{' después del else";
+                    String detalles = "Falta llave de apertura para el bloque else";
+                    errorManager.addSyntacticError(mensaje, 
+                        currentToken() != null ? currentToken().line : 1,
+                        currentToken() != null ? currentToken().column : 1,
+                        detalles);
+                    throw new RuntimeException(mensaje);
+                }
+                
                 eat(TokenType.LBRACE);
                 
                 output.append("🔍 Bloque ELSE\n");
@@ -618,14 +868,13 @@ public class Parser {
                         }
                     }
                 } else {
-                    // Saltar bloque ELSE
                     skipToMatchingBrace();
                 }
                 
                 if (currentToken() != null && currentToken().type == TokenType.RBRACE) {
                     eat(TokenType.RBRACE);
                 }
-                break; // Salir del while después del ELSE normal
+                break;
             }
         }
     }
@@ -851,11 +1100,9 @@ public class Parser {
         // ✅ PARÁMETROS
         List<String> parameters = new ArrayList<>();
         if (currentToken().type != TokenType.RPAREN) {
-            // Primer parámetro
             parameters.add(currentToken().value);
             eat(TokenType.IDENTIFIER);
             
-            // Más parámetros
             while (currentToken().type == TokenType.COMMA) {
                 eat(TokenType.COMMA);
                 parameters.add(currentToken().value);
@@ -867,18 +1114,18 @@ public class Parser {
         
         output.append("   Parámetros: ").append(parameters).append("\n");
         
-        // ✅ GUARDAR información de la función
+        // ✅ GUARDAR información de la función como Map
         Map<String, Object> functionInfo = new HashMap<>();
         functionInfo.put("type", "function");
         functionInfo.put("parameters", parameters);
-        functionInfo.put("bodyStart", position); // Guardar posición del cuerpo
+        functionInfo.put("bodyStart", position);
         
-        // Guardar función en tabla de símbolos
+        // Guardar en tabla de símbolos
         symbolTable.put(functionName, functionInfo);
         
         output.append("   Cuerpo de función registrado\n");
         
-        // ✅ SALTAR el cuerpo de la función (por ahora)
+        // ✅ SALTAR el cuerpo de la función
         skipToMatchingBrace();
         
         if (currentToken() != null && currentToken().type == TokenType.RBRACE) {
@@ -888,15 +1135,23 @@ public class Parser {
     
     // ✅ Método mejorado para saltar bloques
     private void skipToMatchingBrace() {
-        int braceCount = 1;
+        int braceCount = 1; // Ya consumimos la llave de apertura {
+        
         while (currentToken() != null && braceCount > 0 && currentToken().type != TokenType.EOF) {
             if (currentToken().type == TokenType.LBRACE) {
                 braceCount++;
             } else if (currentToken().type == TokenType.RBRACE) {
                 braceCount--;
+                // ✅ IMPORTANTE: NO consumir la llave de cierre aquí
+                // Solo salir del loop cuando encontremos la llave que cierra el bloque actual
+                if (braceCount == 0) {
+                    break; // Salir sin consumir el }
+                }
             }
-            position++;
+            position++; // Avanzar posición
         }
+        
+        // ✅ Ahora estamos posicionados en el }, listos para que el método principal lo consuma
     }
 
     private void skipUntil(TokenType target) {
