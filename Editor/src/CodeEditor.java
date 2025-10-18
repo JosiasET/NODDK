@@ -229,14 +229,14 @@ public class CodeEditor {
                     continue; // Saltar strings completamente
                 }
 
-                if (token.type == TokenType.IF && i + 2 < tokens.size()) {
+                if (isReservedTokenType(token.type) && i + 2 < tokens.size()) {
                     Token next = tokens.get(i + 1);
                     Token nextNext = tokens.get(i + 2);
                     
                     if (next.type == TokenType.ASSIGN) {
                         semanticAnalyzer.addError("Línea " + token.line + 
-                            ": No se puede usar palabra reservada 'if' como variable");
-                        System.out.println("✅ IF detectado como variable en línea " + token.line);
+                            ": No se puede usar palabra reservada '" + token.value + "' como variable");
+                        System.out.println("✅ " + token.type + " detectado como variable en línea " + token.line);
                         i += 2;
                         continue;
                     }
@@ -548,6 +548,15 @@ public class CodeEditor {
             semanticAnalyzer.addError("Error durante el análisis semántico: " + e.getMessage());
             return false;
         }
+    }
+
+    private boolean isReservedTokenType(TokenType type) {
+        return type == TokenType.IF || type == TokenType.ELSE || type == TokenType.WHILE ||
+            type == TokenType.FOR || type == TokenType.DO || type == TokenType.BREAK ||
+            type == TokenType.RETURN || type == TokenType.FUNCTION || type == TokenType.TRUE ||
+            type == TokenType.FALSE || type == TokenType.PRINT || type == TokenType.PRINTLN ||
+            type == TokenType.INPUT || type == TokenType.SWITCH || type == TokenType.CASE ||
+            type == TokenType.DEFAULT;
     }
 
     /**
