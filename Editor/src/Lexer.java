@@ -8,6 +8,7 @@ public class Lexer {
     private int column = 1;
     private final List<Token> tokens = new ArrayList<>();
     private final List<String> errors = new ArrayList<>();
+    private ErrorManager errorManager;
     
     private static final Pattern[] PATTERNS = {
         Pattern.compile("^f\"[^\"]*\""),     // FORMATTED_STRING - f"..."
@@ -110,7 +111,11 @@ public class Lexer {
     public Lexer(String sourceCode) {
         this.sourceCode = sourceCode;
     }
-    
+    public Lexer(String sourceCode, ErrorManager errorManager) {
+        this.sourceCode = sourceCode;
+        this.errorManager = errorManager;
+    }
+
     public List<Token> tokenize() {
         while (position < sourceCode.length()) {
             skipWhitespace();

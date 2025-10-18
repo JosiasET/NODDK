@@ -22,6 +22,12 @@ public class Parser {
         this.semanticAnalyzer = null;
         this.errorManager = new ErrorManager();
     }
+
+    public Parser(List<Token> tokens, SemanticAnalyzer semanticAnalyzer, ErrorManager errorManager) {
+        this.tokens = tokens;
+        this.semanticAnalyzer = semanticAnalyzer;
+        this.errorManager = errorManager;
+    }
     
     private Token currentToken() {
         return position < tokens.size() ? tokens.get(position) : null;
