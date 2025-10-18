@@ -127,11 +127,17 @@ public class SemanticAnalyzer {
         return "error";
     }
     
-    private String inferIntegerType(int value, int line) {
-        if (value >= INT_MIN && value <= INT_MAX) {
-            return "int";
-        } else {
-            addError("Línea " + line + ": Valor entero fuera de rango: " + value);
+    private String inferIntegerType(String value, int line) {
+        try {
+            long longValue = Long.parseLong(value);
+            if (longValue >= INT_MIN && longValue <= INT_MAX) {
+                return "int";
+            } else {
+                addError("Línea " + line + ": Valor entero fuera de rango: " + value);
+                return "error";
+            }
+        } catch (NumberFormatException e) {
+            addError("Línea " + line + ": Valor entero inválido: " + value);
             return "error";
         }
     }
@@ -297,6 +303,11 @@ public class SemanticAnalyzer {
             return false;
         }
         
+        if (isReservedWord(identifier)) {
+            addError("Línea " + line + ": No se puede usar palabra reservada '" + identifier + "'");
+            return false;
+        }
+
         String inferredType = inferTypeFromValue(value, line);
         
         if (inferredType.equals("error")) {
@@ -434,7 +445,7 @@ public class SemanticAnalyzer {
             addError("Línea " + line + ": No se pueden operar booleanos en operaciones aritméticas");
             return false;
         }
-        
+                
         // ✅ CORREGIDO: Verificación ESTRICTA - SOLO mismo tipo
         if (!areSameTypeStrict(leftType, rightType)) {
             addError("Línea " + line + ": No se puede operar " + leftType + " con " + rightType + 
