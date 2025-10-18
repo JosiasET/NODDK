@@ -757,7 +757,8 @@ public class SemanticAnalyzer {
     public boolean isReservedWord(String identifier) {
         Set<String> reservedWords = Set.of(
             "if", "else", "while", "for", "do", "break", "return", 
-            "function", "true", "false", "input", "print", "println"
+            "function", "true", "false", "input", "print", "println",
+            "switch", "case", "default"
         );
         return reservedWords.contains(identifier);
     }

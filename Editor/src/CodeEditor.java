@@ -228,6 +228,19 @@ public class CodeEditor {
                 if (token.type == TokenType.STRING || token.type == TokenType.FORMATTED_STRING) {
                     continue; // Saltar strings completamente
                 }
+
+                if (token.type == TokenType.IF && i + 2 < tokens.size()) {
+                    Token next = tokens.get(i + 1);
+                    Token nextNext = tokens.get(i + 2);
+                    
+                    if (next.type == TokenType.ASSIGN) {
+                        semanticAnalyzer.addError("Línea " + token.line + 
+                            ": No se puede usar palabra reservada 'if' como variable");
+                        System.out.println("✅ IF detectado como variable en línea " + token.line);
+                        i += 2;
+                        continue;
+                    }
+                }
                 
                 if (token.type == TokenType.FUNCTION) {
                     inFunction = true;
@@ -453,6 +466,79 @@ public class CodeEditor {
                     }
                 }
             }
+            // ✅ CUARTA PASADA: Verificar variables no declaradas en expresiones
+                for (int i = 0; i < tokens.size(); i++) {
+                    Token token = tokens.get(i);
+                    
+                    // ✅ IGNORAR TOKENS DENTRO DE STRINGS
+                    if (token.type == TokenType.STRING || token.type == TokenType.FORMATTED_STRING) {
+                        continue;
+                    }
+                    
+                    // ✅ DETECTAR IDENTIFICADORES EN EXPRESIONES (no en asignaciones)
+                    if (token.type == TokenType.IDENTIFIER) {
+                        // Verificar si no es palabra reservada y no existe
+                        if (!semanticAnalyzer.isReservedWord(token.value) && 
+                            !semanticAnalyzer.variableExists(token.value)) {
+                            
+                            // Verificar contexto - no es una declaración (asignación)
+                            boolean isDeclaration = false;
+                            if (i + 1 < tokens.size() && tokens.get(i + 1).type == TokenType.ASSIGN) {
+                                isDeclaration = true;
+                            }
+                            
+                            if (!isDeclaration) {
+                                semanticAnalyzer.addError("Línea " + token.line + 
+                                    ": Variable '" + token.value + "' no declarada");
+                            }
+                        }
+                        
+                        // ✅ DETECTAR PALABRAS RESERVADAS COMO IDENTIFICADORES
+                        if (semanticAnalyzer.isReservedWord(token.value)) {
+                            // Verificar si se está usando como variable (no como keyword)
+                            boolean isKeywordUsage = false;
+                            
+                            // Contextos donde es válido usar palabras reservadas
+                            if (i > 0) {
+                                Token prev = tokens.get(i - 1);
+                                if (prev.type == TokenType.FUNCTION || prev.type == TokenType.IF || 
+                                    prev.type == TokenType.WHILE || prev.type == TokenType.FOR ||
+                                    prev.type == TokenType.RETURN || prev.type == TokenType.PRINT ||
+                                    prev.type == TokenType.PRINTLN) {
+                                    isKeywordUsage = true;
+                                }
+                            }
+                            
+                            if (!isKeywordUsage) {
+                                semanticAnalyzer.addError("Línea " + token.line + 
+                                    ": No se puede usar palabra reservada '" + token.value + "'");
+                            }
+                        }
+                    }
+                    
+                    // ✅ DETECTAR OVERFLOW EN NÚMEROS LITERALES
+                    if (token.type == TokenType.NUMBER) {
+                        try {
+                            if (token.value.contains(".")) {
+                                float value = Float.parseFloat(token.value);
+                                if (Math.abs(value) > Float.MAX_VALUE) {
+                                    semanticAnalyzer.addError("Línea " + token.line + 
+                                        ": Valor float fuera de rango: " + token.value);
+                                }
+                            } else {
+                                long value = Long.parseLong(token.value);
+                                if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
+                                    semanticAnalyzer.addError("Línea " + token.line + 
+                                        ": Valor entero fuera de rango: " + token.value);
+                                }
+                            }
+                        } catch (NumberFormatException e) {
+                            semanticAnalyzer.addError("Línea " + token.line + 
+                                ": Valor numérico inválido: " + token.value);
+                        }
+                    }
+                }
+            
             
             return !semanticAnalyzer.hasErrors();
             
