@@ -97,12 +97,17 @@ public class CompilationManager {
         StringBuilder optimizedTacOutput = new StringBuilder();
         StringBuilder assemblyOutput = new StringBuilder();
 
+        // Declarar listas de instrucciones fuera del bloque if para que sean accesibles
+        // al retornar
+        List<TACInstruction> tacInstructions = new ArrayList<>();
+        List<TACInstruction> optimizedInstructions = new ArrayList<>();
+
         if (tokens != null && !errorManager.hasErrors()) {
             System.out.println("4️⃣  GENERANDO CÓDIGO DE TRES DIRECCIONES...");
             try {
                 // Generar TAC
                 TACGenerator tacGenerator = new TACGenerator(tokens);
-                List<TACInstruction> tacInstructions = tacGenerator.generate();
+                tacInstructions = tacGenerator.generate();
 
                 tacOutput.append("=== CÓDIGO DE TRES DIRECCIONES ===\n");
                 for (TACInstruction inst : tacInstructions) {
@@ -112,7 +117,7 @@ public class CompilationManager {
                 // Optimizar TAC
                 System.out.println("5️⃣  OPTIMIZANDO CÓDIGO DE TRES DIRECCIONES...");
                 TACOptimizer tacOptimizer = new TACOptimizer();
-                List<TACInstruction> optimizedInstructions = tacOptimizer.optimize(tacInstructions);
+                optimizedInstructions = tacOptimizer.optimize(tacInstructions);
 
                 optimizedTacOutput.append("=== CÓDIGO OPTIMIZADO (TAC) ===\n");
                 for (TACInstruction inst : optimizedInstructions) {
@@ -144,7 +149,7 @@ public class CompilationManager {
 
         return new CompilationResult(tokens, syntacticOutput, semanticOutput,
                 tacOutput.toString(), optimizedTacOutput.toString(), assemblyOutput.toString(),
-                errorManager);
+                errorManager, tacInstructions, optimizedInstructions);
     }
 
     /**
@@ -469,9 +474,15 @@ public class CompilationManager {
         public final String assemblyOutput;
         public final ErrorManager errorManager;
 
+        // Nuevos campos para acceso directo a instrucciones
+        public final List<TACInstruction> tacInstructions;
+        public final List<TACInstruction> optimizedTacInstructions;
+
         public CompilationResult(List<Token> tokens, String syntacticOutput,
                 String semanticOutput, String tacOutput, String optimizedTacOutput, String assemblyOutput,
-                ErrorManager errorManager) {
+                ErrorManager errorManager,
+                List<TACInstruction> tacInstructions,
+                List<TACInstruction> optimizedTacInstructions) {
             this.tokens = tokens;
             this.syntacticOutput = syntacticOutput;
             this.semanticOutput = semanticOutput;
@@ -479,6 +490,8 @@ public class CompilationManager {
             this.optimizedTacOutput = optimizedTacOutput;
             this.assemblyOutput = assemblyOutput;
             this.errorManager = errorManager;
+            this.tacInstructions = tacInstructions;
+            this.optimizedTacInstructions = optimizedTacInstructions;
         }
 
         public boolean hasErrors() {

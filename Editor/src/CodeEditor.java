@@ -132,7 +132,6 @@ public class CodeEditor {
                             output.append("=".repeat(50)).append("\n\n");
 
                             output.append(result.syntacticOutput).append("\n");
-                            // output.append(result.semanticOutput).append("\n\n");
 
                             output.append("📌 CÓDIGO DE TRES DIRECCIONES:\n");
                             output.append(result.tacOutput).append("\n");
@@ -142,6 +141,35 @@ public class CodeEditor {
 
                             output.append("🔧 CÓDIGO ENSAMBLADOR:\n");
                             output.append(result.assemblyOutput).append("\n");
+
+                            // Generar Arduino (C++)
+                            // ✅ Se usa optimizedTacInstructions si existe, sino tacInstructions
+                            List<TACInstruction> instructionsToUse = result.optimizedTacInstructions != null
+                                    ? result.optimizedTacInstructions
+                                    : result.tacInstructions;
+
+                            if (instructionsToUse != null) {
+                                ArduinoGenerator arduinoGenerator = new ArduinoGenerator();
+                                String arduinoCode = arduinoGenerator.generate(instructionsToUse);
+
+                                output.append("\n\n=== CÓDIGO ARDUINO (ESP32) ===\n");
+                                output.append(arduinoCode);
+
+                                // ✅ GUARDAR CÓDIGO ARDUINO EN ARCHIVO
+                                try {
+                                    File buildDir = new File("build/esp32");
+                                    if (!buildDir.exists())
+                                        buildDir.mkdirs();
+
+                                    File inoFile = new File(buildDir, "generated_sketch.ino");
+                                    try (FileWriter writer = new FileWriter(inoFile)) {
+                                        writer.write(arduinoCode);
+                                    }
+                                    output.append("\n\n✅ Archivo generado: " + inoFile.getAbsolutePath() + "\n");
+                                } catch (Exception ioEx) {
+                                    output.append("\n\n❌ Error guardando archivo .ino: " + ioEx.getMessage() + "\n");
+                                }
+                            }
 
                             consoleTextPane.setText(output.toString());
                         }
@@ -155,7 +183,9 @@ public class CodeEditor {
             }
         });
 
-        abrirCarpetaBtn.addActionListener(e -> {
+        abrirCarpetaBtn.addActionListener(e ->
+
+        {
             JFileChooser chooser = new JFileChooser();
             chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
             if (chooser.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
@@ -164,7 +194,9 @@ public class CodeEditor {
             }
         });
 
-        guardarBtn.addActionListener(e -> guardarArchivoActual());
+        guardarBtn.addActionListener(e ->
+
+        guardarArchivoActual());
     }
 
     /**
