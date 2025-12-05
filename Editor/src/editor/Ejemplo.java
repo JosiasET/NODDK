@@ -5,17 +5,18 @@ import java.util.Scanner;
 public class Ejemplo {
     public static void main(String[] args) {
         
-        int num = 2;
-        switch (num) {
-            case 1:
-                System.out.println("Hola");
-                break;
-            case 2:
-                System.out.println("Hola2");
-                break;
-            default:
-                System.out.println("Emir");
-                break;
+        int numero = 10;
+        int divisor = 90;
+
+
+        int suma = numero + divisor;
+
+
+        if (suma > 50) {
+            System.out.println("La suma es mayor que 50");
+        } else {
+            System.out.println("La suma es 50 o menor");
         }
+        
     }
 }

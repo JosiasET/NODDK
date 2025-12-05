@@ -28,13 +28,13 @@ public class CodeEditor {
     private final FileSystemView fileSystemView = FileSystemView.getFileSystemView();
     private Map<File, JTextPane> openFiles = new HashMap<>();
     private SemanticAnalyzer semanticAnalyzer;
-    
+
     private final Color COLOR_FONDO = new Color(135, 206, 250);
     private final Color COLOR_ACENTO = Color.GRAY;
     private final Color COLOR_TEXTO = Color.BLACK;
     private final Color COLOR_EDITOR = Color.WHITE;
     private final Color COLOR_LINE_NUMBERS = new Color(240, 240, 240);
-    
+
     // Configuración de fuentes
     private final Font FUENTE_CODIGO = new Font(Font.MONOSPACED, Font.PLAIN, 14);
     private final Font FUENTE_BOTONES = new Font("SansSerif", Font.BOLD, 14);
@@ -110,39 +110,11 @@ public class CodeEditor {
                 if (view instanceof JTextPane) {
                     JTextPane currentPane = (JTextPane) view;
                     String codigo = currentPane.getText();
-                    
+
                     try {
-                        // ==================== ANÁLISIS LÉXICO ====================
-                        Lexer lexer = new Lexer(codigo);
-                        List<Token> tokens = lexer.tokenize();
-                        
-                        // ✅ VERIFICAR ERRORES LÉXICOS PRIMERO
-                        if (lexer.hasErrors()) {
-                            StringBuilder output = new StringBuilder();
-                            output.append(lexer.getErrorsAsString()).append("\n");
-                            output.append("⏹️  Análisis detenido por errores léxicos\n");
-                            if (consoleTextPane == null) {
-                                consoleTextPane = new JTextPane();
-                                consoleTextPane.setEditable(false);
-                                consoleTextPane.setFont(FUENTE_CONSOLA);
-                                consoleTextPane.setBackground(Color.BLACK);
-                                consoleTextPane.setForeground(Color.WHITE);
-                            }
-                            consoleTextPane.setText(output.toString());
-                            toggleConsola();
-                            return; // Detener el análisis aquí
-                        }
-                        
-                        // ==================== ANÁLISIS SEMÁNTICO ====================
-                        ErrorManager semanticErrorManager = new ErrorManager();
-                        SemanticAnalyzer semanticAnalyzer = new SemanticAnalyzer(semanticErrorManager);
-                        boolean semanticValid = performSemanticAnalysis(tokens, semanticAnalyzer);
-                        
-                        // ==================== ANÁLISIS SINTÁCTICO ====================
-                        // ✅ SOLUCIÓN SIMPLE: Usar el Parser original sin cambios
-                        Parser parser = new Parser(tokens);
-                        String resultado = parser.parse();
-                        
+                        // ✅ USAR COMPILATION MANAGER PARA OBTENER TODO EL ANÁLISIS
+                        CompilationManager.CompilationResult result = compilationManager.compile(codigo);
+
                         if (consoleTextPane == null) {
                             consoleTextPane = new JTextPane();
                             consoleTextPane.setEditable(false);
@@ -150,47 +122,32 @@ public class CodeEditor {
                             consoleTextPane.setBackground(Color.BLACK);
                             consoleTextPane.setForeground(Color.WHITE);
                         }
-                        
-                        // Mostrar resultados de todos los análisis
-                        /*StringBuilder output = new StringBuilder();
-                        
-                        output.append("🔍 ANÁLISIS SEMÁNTICO:\n");
-                        output.append("=".repeat(50)).append("\n");
 
-                        if (semanticValid) {
-                            output.append("✅ ANÁLISIS SEMÁNTICO EXITOSO\n\n");
-                            output.append(semanticAnalyzer.getSymbolTableAsString());
+                        if (result.hasErrors()) {
+                            // Mostrar errores
+                            consoleTextPane.setText("❌ ERRORES DE COMPILACIÓN:\n\n" + result.getFullReport());
                         } else {
-                            output.append(semanticAnalyzer.getErrorsAsString());
-                            output.append("\n");
-                            output.append(semanticAnalyzer.getSymbolTableAsString());
-                        }
-                        
-                        output.append("\n📋 RESULTADO DEL PARSER:\n");
-                        output.append("=".repeat(50)).append("\n");
-                        output.append(resultado);
-                        
-                        consoleTextPane.setText(output.toString());*/
-                        if (lexer.hasErrors() || !semanticValid || resultado.contains("❌")) {
-                            // Mostrar errores si los hay
-                            StringBuilder errorOutput = new StringBuilder();
-                            if (lexer.hasErrors()) {
-                                errorOutput.append(lexer.getErrorsAsString()).append("\n");
-                            }
-                            if (!semanticValid) {
-                                errorOutput.append(semanticAnalyzer.getErrorsAsString()).append("\n");
-                            }
-                            if (resultado.contains("❌")) {
-                                errorOutput.append("❌ Error en análisis sintáctico\n").append(resultado).append("\n");
-                            }
-                            consoleTextPane.setText(errorOutput.toString());
-                        } else {
-                            // ✅ Solo este mensaje cuando todo está bien
-                            consoleTextPane.setText("✅ Programa ejecutado correctamente");
+                            StringBuilder output = new StringBuilder();
+                            output.append("✅ COMPILACIÓN EXITOSA\n");
+                            output.append("=".repeat(50)).append("\n\n");
+
+                            output.append(result.syntacticOutput).append("\n");
+                            // output.append(result.semanticOutput).append("\n\n");
+
+                            output.append("📌 CÓDIGO DE TRES DIRECCIONES:\n");
+                            output.append(result.tacOutput).append("\n");
+
+                            output.append("⚡ CÓDIGO OPTIMIZADO:\n");
+                            output.append(result.optimizedTacOutput).append("\n");
+
+                            output.append("🔧 CÓDIGO ENSAMBLADOR:\n");
+                            output.append(result.assemblyOutput).append("\n");
+
+                            consoleTextPane.setText(output.toString());
                         }
 
                         toggleConsola();
-                        
+
                     } catch (Exception ex) {
                         mostrarErrorEnConsola(ex);
                     }
@@ -210,10 +167,9 @@ public class CodeEditor {
         guardarBtn.addActionListener(e -> guardarArchivoActual());
     }
 
-  
     /**
-    * ✅ CORREGIDO: Análisis semántico que ignora tokens dentro de strings
-    */
+     * ✅ CORREGIDO: Análisis semántico que ignora tokens dentro de strings
+     */
     private boolean performSemanticAnalysis(List<Token> tokens, SemanticAnalyzer semanticAnalyzer) {
         try {
             boolean inFunction = false;
@@ -223,7 +179,7 @@ public class CodeEditor {
             // ✅ PRIMERA PASADA: Declarar todas las variables (SOLO la primera asignación)
             for (int i = 0; i < tokens.size(); i++) {
                 Token token = tokens.get(i);
-                
+
                 // ✅ IGNORAR TOKENS DENTRO DE STRINGS - EVITA FALSOS POSITIVOS
                 if (token.type == TokenType.STRING || token.type == TokenType.FORMATTED_STRING) {
                     continue; // Saltar strings completamente
@@ -232,16 +188,16 @@ public class CodeEditor {
                 if (isReservedTokenType(token.type) && i + 2 < tokens.size()) {
                     Token next = tokens.get(i + 1);
                     Token nextNext = tokens.get(i + 2);
-                    
+
                     if (next.type == TokenType.ASSIGN) {
-                        semanticAnalyzer.addError("Línea " + token.line + 
-                            ": No se puede usar palabra reservada '" + token.value + "' como variable");
+                        semanticAnalyzer.addError("Línea " + token.line +
+                                ": No se puede usar palabra reservada '" + token.value + "' como variable");
                         System.out.println("✅ " + token.type + " detectado como variable en línea " + token.line);
                         i += 2;
                         continue;
                     }
                 }
-                
+
                 if (token.type == TokenType.FUNCTION) {
                     inFunction = true;
                     if (i + 1 < tokens.size() && tokens.get(i + 1).type == TokenType.IDENTIFIER) {
@@ -250,7 +206,7 @@ public class CodeEditor {
                     }
                     continue;
                 }
-                
+
                 if (token.type == TokenType.RBRACE && inFunction) {
                     inFunction = false;
                     currentFunction = null;
@@ -258,7 +214,7 @@ public class CodeEditor {
                     semanticAnalyzer.exitScope();
                     continue;
                 }
-                
+
                 if (inFunction && currentFunction != null && token.type == TokenType.LPAREN) {
                     int j = i + 1;
                     while (j < tokens.size() && tokens.get(j).type != TokenType.RPAREN) {
@@ -273,20 +229,20 @@ public class CodeEditor {
                     }
                     continue;
                 }
-                
+
                 // ✅ DECLARACIÓN DE VARIABLES - SOLO si no estamos en una función
                 if (!inFunction && token.type == TokenType.IDENTIFIER && i + 2 < tokens.size()) {
                     Token next = tokens.get(i + 1);
                     Token nextNext = tokens.get(i + 2);
-                    
+
                     if (next.type == TokenType.ASSIGN) {
                         String identifier = token.value;
-                        
+
                         if (!semanticAnalyzer.isReservedWord(identifier)) {
                             // ✅ VERIFICAR si la variable YA EXISTE (es reasignación, no declaración)
                             if (!semanticAnalyzer.variableExists(identifier)) {
                                 Object value = extractValueFromToken(nextNext);
-                                
+
                                 if (value != null) {
                                     // ✅ SOLO declarar si no existe
                                     semanticAnalyzer.checkDeclaration(identifier, value, token.line);
@@ -298,7 +254,7 @@ public class CodeEditor {
                         }
                     }
                 }
-                
+
                 if (token.type == TokenType.LBRACE && currentFunction != null) {
                     semanticAnalyzer.enterScope("func_" + currentFunction);
                 }
@@ -307,29 +263,29 @@ public class CodeEditor {
             // ✅ SEGUNDA PASADA: Manejar REASIGNACIONES y operaciones (IGNORANDO STRINGS)
             for (int i = 0; i < tokens.size() - 2; i++) {
                 Token token = tokens.get(i);
-                
+
                 // ✅ IGNORAR TOKENS DENTRO DE STRINGS
                 if (token.type == TokenType.STRING || token.type == TokenType.FORMATTED_STRING) {
                     continue;
                 }
-                
+
                 // ✅ DETECTAR REASIGNACIONES de variables existentes
                 if (token.type == TokenType.IDENTIFIER && i + 2 < tokens.size()) {
                     Token next = tokens.get(i + 1);
                     Token nextNext = tokens.get(i + 2);
-                    
+
                     // ✅ IGNORAR SI EL NEXT O NEXTNEXT SON STRINGS
                     if (next.type == TokenType.STRING || next.type == TokenType.FORMATTED_STRING ||
-                        nextNext.type == TokenType.STRING || nextNext.type == TokenType.FORMATTED_STRING) {
+                            nextNext.type == TokenType.STRING || nextNext.type == TokenType.FORMATTED_STRING) {
                         continue;
                     }
-                    
+
                     if (next.type == TokenType.ASSIGN) {
                         String identifier = token.value;
-                        
+
                         if (!semanticAnalyzer.isReservedWord(identifier)) {
                             Object value = extractValueFromToken(nextNext);
-                            
+
                             if (value != null) {
                                 if (semanticAnalyzer.variableExists(identifier)) {
                                     // ✅ ES UNA REASIGNACIÓN
@@ -342,118 +298,124 @@ public class CodeEditor {
                         }
                     }
                 }
-                
+
                 // ✅ DETECTAR OPERACIONES CON TIPOS INCOMPATIBLES (IGNORANDO STRINGS)
                 if (i > 0 && i < tokens.size() - 1 && isOperator(token.type) && !inFunction) {
                     Token prev = tokens.get(i - 1);
                     Token next = tokens.get(i + 1);
-                    
+
                     // ✅ IGNORAR SI ALGUNO DE LOS OPERANDOS ES STRING
                     if (prev.type == TokenType.STRING || prev.type == TokenType.FORMATTED_STRING ||
-                        next.type == TokenType.STRING || next.type == TokenType.FORMATTED_STRING) {
+                            next.type == TokenType.STRING || next.type == TokenType.FORMATTED_STRING) {
                         continue;
                     }
-                    
+
                     String operator = getOperatorSymbol(token.type);
-                    
+
                     // ✅ CASO 1: Ambos son identificadores (variables)
                     if (prev.type == TokenType.IDENTIFIER && next.type == TokenType.IDENTIFIER) {
                         String leftVar = prev.value;
                         String rightVar = next.value;
-                        
-                        if (!semanticAnalyzer.isReservedWord(leftVar) && 
-                            !semanticAnalyzer.isReservedWord(rightVar) &&
-                            semanticAnalyzer.variableExists(leftVar) && 
-                            semanticAnalyzer.variableExists(rightVar)) {
-                            
+
+                        if (!semanticAnalyzer.isReservedWord(leftVar) &&
+                                !semanticAnalyzer.isReservedWord(rightVar) &&
+                                semanticAnalyzer.variableExists(leftVar) &&
+                                semanticAnalyzer.variableExists(rightVar)) {
+
                             SemanticAnalyzer.VariableInfo leftInfo = semanticAnalyzer.getVariableInfo(leftVar);
                             SemanticAnalyzer.VariableInfo rightInfo = semanticAnalyzer.getVariableInfo(rightVar);
-                            
+
                             // ✅ VERIFICAR TIPOS ESTRICTAMENTE
                             if (!leftInfo.type.equals(rightInfo.type)) {
-                                semanticAnalyzer.addError("Línea " + token.line + 
-                                    ": No se puede operar " + leftInfo.type + " '" + leftVar + 
-                                    "' con " + rightInfo.type + " '" + rightVar + "'");
+                                semanticAnalyzer.addError("Línea " + token.line +
+                                        ": No se puede operar " + leftInfo.type + " '" + leftVar +
+                                        "' con " + rightInfo.type + " '" + rightVar + "'");
                             } else {
                                 semanticAnalyzer.checkBinaryOperationTypes(
-                                    leftInfo.value, rightInfo.value, operator, token.line);
+                                        leftInfo.value, rightInfo.value, operator, token.line);
                             }
                         }
                     }
-                    
+
                     // ✅ CASO 2: Izquierda es variable, derecha es literal
-                    else if (prev.type == TokenType.IDENTIFIER && 
-                        (next.type == TokenType.NUMBER || next.type == TokenType.TRUE || next.type == TokenType.FALSE)) {
-                    
-                    String leftVar = prev.value;
-                    
-                    if (!semanticAnalyzer.isReservedWord(leftVar) && semanticAnalyzer.variableExists(leftVar)) {
-                        SemanticAnalyzer.VariableInfo leftInfo = semanticAnalyzer.getVariableInfo(leftVar);
-                        Object rightValue = extractValueFromToken(next);
-                        String rightType = semanticAnalyzer.inferTypeFromValue(rightValue, next.line);
-                        
-                        if (!leftInfo.type.equals(rightType)) {
-                            semanticAnalyzer.addError("Línea " + token.line + 
-                                ": No se puede operar " + leftInfo.type + " '" + leftVar + 
-                                "' con " + rightType + " '" + next.value + "'");
-                        } else {
-                            semanticAnalyzer.checkBinaryOperationTypes(
-                                leftInfo.value, rightValue, operator, token.line);
+                    else if (prev.type == TokenType.IDENTIFIER &&
+                            (next.type == TokenType.NUMBER || next.type == TokenType.TRUE
+                                    || next.type == TokenType.FALSE)) {
+
+                        String leftVar = prev.value;
+
+                        if (!semanticAnalyzer.isReservedWord(leftVar) && semanticAnalyzer.variableExists(leftVar)) {
+                            SemanticAnalyzer.VariableInfo leftInfo = semanticAnalyzer.getVariableInfo(leftVar);
+                            Object rightValue = extractValueFromToken(next);
+                            String rightType = semanticAnalyzer.inferTypeFromValue(rightValue, next.line);
+
+                            if (!leftInfo.type.equals(rightType)) {
+                                semanticAnalyzer.addError("Línea " + token.line +
+                                        ": No se puede operar " + leftInfo.type + " '" + leftVar +
+                                        "' con " + rightType + " '" + next.value + "'");
+                            } else {
+                                semanticAnalyzer.checkBinaryOperationTypes(
+                                        leftInfo.value, rightValue, operator, token.line);
+                            }
                         }
                     }
-                }
-                    
+
                     // ✅ CASO 3: Izquierda es literal, derecha es variable
-                    else if ((prev.type == TokenType.NUMBER || prev.type == TokenType.TRUE || prev.type == TokenType.FALSE) &&
-                        next.type == TokenType.IDENTIFIER) {
-                    
-                    String rightVar = next.value;
-                    
-                    if (!semanticAnalyzer.isReservedWord(rightVar) && semanticAnalyzer.variableExists(rightVar)) {
-                        Object leftValue = extractValueFromToken(prev);
-                        String leftType = semanticAnalyzer.inferTypeFromValue(leftValue, prev.line);
-                        SemanticAnalyzer.VariableInfo rightInfo = semanticAnalyzer.getVariableInfo(rightVar);
-                        
-                        if (!leftType.equals(rightInfo.type)) {
-                            semanticAnalyzer.addError("Línea " + token.line + 
-                                ": No se puede operar " + leftType + " '" + prev.value + 
-                                "' con " + rightInfo.type + " '" + rightVar + "'");
-                        } else {
-                            semanticAnalyzer.checkBinaryOperationTypes(
-                                leftValue, rightInfo.value, operator, token.line);
+                    else if ((prev.type == TokenType.NUMBER || prev.type == TokenType.TRUE
+                            || prev.type == TokenType.FALSE) &&
+                            next.type == TokenType.IDENTIFIER) {
+
+                        String rightVar = next.value;
+
+                        if (!semanticAnalyzer.isReservedWord(rightVar) && semanticAnalyzer.variableExists(rightVar)) {
+                            Object leftValue = extractValueFromToken(prev);
+                            String leftType = semanticAnalyzer.inferTypeFromValue(leftValue, prev.line);
+                            SemanticAnalyzer.VariableInfo rightInfo = semanticAnalyzer.getVariableInfo(rightVar);
+
+                            if (!leftType.equals(rightInfo.type)) {
+                                semanticAnalyzer.addError("Línea " + token.line +
+                                        ": No se puede operar " + leftType + " '" + prev.value +
+                                        "' con " + rightInfo.type + " '" + rightVar + "'");
+                            } else {
+                                semanticAnalyzer.checkBinaryOperationTypes(
+                                        leftValue, rightInfo.value, operator, token.line);
+                            }
                         }
                     }
-                } 
-                    
+
                     // ✅ CASO 4: Ambos son literales
-                    else if ((prev.type == TokenType.NUMBER || prev.type == TokenType.TRUE || prev.type == TokenType.FALSE) &&
-                            (next.type == TokenType.NUMBER || next.type == TokenType.TRUE || next.type == TokenType.FALSE)) {
-                        
+                    else if ((prev.type == TokenType.NUMBER || prev.type == TokenType.TRUE
+                            || prev.type == TokenType.FALSE) &&
+                            (next.type == TokenType.NUMBER || next.type == TokenType.TRUE
+                                    || next.type == TokenType.FALSE)) {
+
                         Object leftValue = extractValueFromToken(prev);
                         Object rightValue = extractValueFromToken(next);
-                        
+
                         if (leftValue != null && rightValue != null) {
                             semanticAnalyzer.checkBinaryOperationTypes(
-                                leftValue, rightValue, operator, token.line);
+                                    leftValue, rightValue, operator, token.line);
                         }
                     }
                 }
             }
 
-            // ✅ TERCERA PASADA: Verificar uso de variables no inicializadas (IGNORANDO STRINGS)
+            // ✅ TERCERA PASADA: Verificar uso de variables no inicializadas (IGNORANDO
+            // STRINGS)
             for (int i = 0; i < tokens.size(); i++) {
                 Token token = tokens.get(i);
-                
+
                 // ✅ IGNORAR TOKENS DENTRO DE STRINGS
                 if (token.type == TokenType.STRING || token.type == TokenType.FORMATTED_STRING) {
                     continue;
                 }
-                
-                if (token.type == TokenType.IDENTIFIER && 
-                    !semanticAnalyzer.isReservedWord(token.value) &&
-                    semanticAnalyzer.variableExists(token.value)) {
-                    
-                    // Verificar que la variable esté inicializada cuando se usa (no en asignaciones)
+
+                if (token.type == TokenType.IDENTIFIER &&
+                        !semanticAnalyzer.isReservedWord(token.value) &&
+                        semanticAnalyzer.variableExists(token.value)) {
+
+                    // Verificar que la variable esté inicializada cuando se usa (no en
+                    // asignaciones)
                     if (i > 0) {
                         Token prev = tokens.get(i - 1);
                         // Si no es una asignación, verificar inicialización
@@ -467,81 +429,80 @@ public class CodeEditor {
                 }
             }
             // ✅ CUARTA PASADA: Verificar variables no declaradas en expresiones
-                for (int i = 0; i < tokens.size(); i++) {
-                    Token token = tokens.get(i);
-                    
-                    // ✅ IGNORAR TOKENS DENTRO DE STRINGS
-                    if (token.type == TokenType.STRING || token.type == TokenType.FORMATTED_STRING) {
-                        continue;
-                    }
-                    
-                    // ✅ DETECTAR IDENTIFICADORES EN EXPRESIONES (no en asignaciones)
-                    if (token.type == TokenType.IDENTIFIER) {
-                        // Verificar si no es palabra reservada y no existe
-                        if (!semanticAnalyzer.isReservedWord(token.value) && 
+            for (int i = 0; i < tokens.size(); i++) {
+                Token token = tokens.get(i);
+
+                // ✅ IGNORAR TOKENS DENTRO DE STRINGS
+                if (token.type == TokenType.STRING || token.type == TokenType.FORMATTED_STRING) {
+                    continue;
+                }
+
+                // ✅ DETECTAR IDENTIFICADORES EN EXPRESIONES (no en asignaciones)
+                if (token.type == TokenType.IDENTIFIER) {
+                    // Verificar si no es palabra reservada y no existe
+                    if (!semanticAnalyzer.isReservedWord(token.value) &&
                             !semanticAnalyzer.variableExists(token.value)) {
-                            
-                            // Verificar contexto - no es una declaración (asignación)
-                            boolean isDeclaration = false;
-                            if (i + 1 < tokens.size() && tokens.get(i + 1).type == TokenType.ASSIGN) {
-                                isDeclaration = true;
-                            }
-                            
-                            if (!isDeclaration) {
-                                semanticAnalyzer.addError("Línea " + token.line + 
-                                    ": Variable '" + token.value + "' no declarada");
-                            }
+
+                        // Verificar contexto - no es una declaración (asignación)
+                        boolean isDeclaration = false;
+                        if (i + 1 < tokens.size() && tokens.get(i + 1).type == TokenType.ASSIGN) {
+                            isDeclaration = true;
                         }
-                        
-                        // ✅ DETECTAR PALABRAS RESERVADAS COMO IDENTIFICADORES
-                        if (semanticAnalyzer.isReservedWord(token.value)) {
-                            // Verificar si se está usando como variable (no como keyword)
-                            boolean isKeywordUsage = false;
-                            
-                            // Contextos donde es válido usar palabras reservadas
-                            if (i > 0) {
-                                Token prev = tokens.get(i - 1);
-                                if (prev.type == TokenType.FUNCTION || prev.type == TokenType.IF || 
+
+                        if (!isDeclaration) {
+                            semanticAnalyzer.addError("Línea " + token.line +
+                                    ": Variable '" + token.value + "' no declarada");
+                        }
+                    }
+
+                    // ✅ DETECTAR PALABRAS RESERVADAS COMO IDENTIFICADORES
+                    if (semanticAnalyzer.isReservedWord(token.value)) {
+                        // Verificar si se está usando como variable (no como keyword)
+                        boolean isKeywordUsage = false;
+
+                        // Contextos donde es válido usar palabras reservadas
+                        if (i > 0) {
+                            Token prev = tokens.get(i - 1);
+                            if (prev.type == TokenType.FUNCTION || prev.type == TokenType.IF ||
                                     prev.type == TokenType.WHILE || prev.type == TokenType.FOR ||
                                     prev.type == TokenType.RETURN || prev.type == TokenType.PRINT ||
                                     prev.type == TokenType.PRINTLN) {
-                                    isKeywordUsage = true;
-                                }
-                            }
-                            
-                            if (!isKeywordUsage) {
-                                semanticAnalyzer.addError("Línea " + token.line + 
-                                    ": No se puede usar palabra reservada '" + token.value + "'");
+                                isKeywordUsage = true;
                             }
                         }
-                    }
-                    
-                    // ✅ DETECTAR OVERFLOW EN NÚMEROS LITERALES
-                    if (token.type == TokenType.NUMBER) {
-                        try {
-                            if (token.value.contains(".")) {
-                                float value = Float.parseFloat(token.value);
-                                if (Math.abs(value) > Float.MAX_VALUE) {
-                                    semanticAnalyzer.addError("Línea " + token.line + 
-                                        ": Valor float fuera de rango: " + token.value);
-                                }
-                            } else {
-                                long value = Long.parseLong(token.value);
-                                if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
-                                    semanticAnalyzer.addError("Línea " + token.line + 
-                                        ": Valor entero fuera de rango: " + token.value);
-                                }
-                            }
-                        } catch (NumberFormatException e) {
-                            semanticAnalyzer.addError("Línea " + token.line + 
-                                ": Valor numérico inválido: " + token.value);
+
+                        if (!isKeywordUsage) {
+                            semanticAnalyzer.addError("Línea " + token.line +
+                                    ": No se puede usar palabra reservada '" + token.value + "'");
                         }
                     }
                 }
-            
-            
+
+                // ✅ DETECTAR OVERFLOW EN NÚMEROS LITERALES
+                if (token.type == TokenType.NUMBER) {
+                    try {
+                        if (token.value.contains(".")) {
+                            float value = Float.parseFloat(token.value);
+                            if (Math.abs(value) > Float.MAX_VALUE) {
+                                semanticAnalyzer.addError("Línea " + token.line +
+                                        ": Valor float fuera de rango: " + token.value);
+                            }
+                        } else {
+                            long value = Long.parseLong(token.value);
+                            if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
+                                semanticAnalyzer.addError("Línea " + token.line +
+                                        ": Valor entero fuera de rango: " + token.value);
+                            }
+                        }
+                    } catch (NumberFormatException e) {
+                        semanticAnalyzer.addError("Línea " + token.line +
+                                ": Valor numérico inválido: " + token.value);
+                    }
+                }
+            }
+
             return !semanticAnalyzer.hasErrors();
-            
+
         } catch (Exception e) {
             System.err.println("Error en análisis semántico: " + e.getMessage());
             e.printStackTrace();
@@ -552,11 +513,11 @@ public class CodeEditor {
 
     private boolean isReservedTokenType(TokenType type) {
         return type == TokenType.IF || type == TokenType.ELSE || type == TokenType.WHILE ||
-            type == TokenType.FOR || type == TokenType.DO || type == TokenType.BREAK ||
-            type == TokenType.RETURN || type == TokenType.FUNCTION || type == TokenType.TRUE ||
-            type == TokenType.FALSE || type == TokenType.PRINT || type == TokenType.PRINTLN ||
-            type == TokenType.INPUT || type == TokenType.SWITCH || type == TokenType.CASE ||
-            type == TokenType.DEFAULT;
+                type == TokenType.FOR || type == TokenType.DO || type == TokenType.BREAK ||
+                type == TokenType.RETURN || type == TokenType.FUNCTION || type == TokenType.TRUE ||
+                type == TokenType.FALSE || type == TokenType.PRINT || type == TokenType.PRINTLN ||
+                type == TokenType.INPUT || type == TokenType.SWITCH || type == TokenType.CASE ||
+                type == TokenType.DEFAULT;
     }
 
     /**
@@ -584,31 +545,45 @@ public class CodeEditor {
     }
 
     private boolean isOperator(TokenType type) {
-        return type == TokenType.PLUS || type == TokenType.MINUS || 
-            type == TokenType.MULTIPLY || type == TokenType.DIVIDE ||
-            type == TokenType.MODULO || type == TokenType.EQUALS ||
-            type == TokenType.NOT_EQUALS || type == TokenType.LESS ||
-            type == TokenType.GREATER || type == TokenType.LESS_EQUAL ||
-            type == TokenType.GREATER_EQUAL || type == TokenType.AND ||
-            type == TokenType.OR;
+        return type == TokenType.PLUS || type == TokenType.MINUS ||
+                type == TokenType.MULTIPLY || type == TokenType.DIVIDE ||
+                type == TokenType.MODULO || type == TokenType.EQUALS ||
+                type == TokenType.NOT_EQUALS || type == TokenType.LESS ||
+                type == TokenType.GREATER || type == TokenType.LESS_EQUAL ||
+                type == TokenType.GREATER_EQUAL || type == TokenType.AND ||
+                type == TokenType.OR;
     }
 
     private String getOperatorSymbol(TokenType type) {
         switch (type) {
-            case PLUS: return "+";
-            case MINUS: return "-";
-            case MULTIPLY: return "*";
-            case DIVIDE: return "/";
-            case MODULO: return "%";
-            case EQUALS: return "==";
-            case NOT_EQUALS: return "!=";
-            case LESS: return "<";
-            case GREATER: return ">";
-            case LESS_EQUAL: return "<=";
-            case GREATER_EQUAL: return ">=";
-            case AND: return "&&";
-            case OR: return "||";
-            default: return "";
+            case PLUS:
+                return "+";
+            case MINUS:
+                return "-";
+            case MULTIPLY:
+                return "*";
+            case DIVIDE:
+                return "/";
+            case MODULO:
+                return "%";
+            case EQUALS:
+                return "==";
+            case NOT_EQUALS:
+                return "!=";
+            case LESS:
+                return "<";
+            case GREATER:
+                return ">";
+            case LESS_EQUAL:
+                return "<=";
+            case GREATER_EQUAL:
+                return ">=";
+            case AND:
+                return "&&";
+            case OR:
+                return "||";
+            default:
+                return "";
         }
     }
 
@@ -616,8 +591,9 @@ public class CodeEditor {
      * Extrae valores de los tokens literales
      */
     private Object extractValueFromToken(Token token) {
-        if (token == null) return null;
-        
+        if (token == null)
+            return null;
+
         try {
             switch (token.type) {
                 case NUMBER:
@@ -658,21 +634,21 @@ public class CodeEditor {
             consoleTextPane.setBackground(Color.BLACK);
             consoleTextPane.setForeground(Color.WHITE);
         }
-        
+
         StringBuilder errorMsg = new StringBuilder();
         errorMsg.append("❌ ERROR DURANTE EL ANÁLISIS:\n");
         errorMsg.append("=".repeat(50)).append("\n");
         errorMsg.append(ex.getMessage()).append("\n\n");
         errorMsg.append("Stack trace:\n");
         for (StackTraceElement element : ex.getStackTrace()) {
-            if (element.getClassName().contains("CodeEditor") || 
-                element.getClassName().contains("Lexer") ||
-                element.getClassName().contains("Parser") ||
-                element.getClassName().contains("SemanticAnalyzer")) {
+            if (element.getClassName().contains("CodeEditor") ||
+                    element.getClassName().contains("Lexer") ||
+                    element.getClassName().contains("Parser") ||
+                    element.getClassName().contains("SemanticAnalyzer")) {
                 errorMsg.append("  at ").append(element).append("\n");
             }
         }
-        
+
         consoleTextPane.setText(errorMsg.toString());
         toggleConsola();
     }
@@ -1040,7 +1016,7 @@ public class CodeEditor {
         boolean visible = !southPanel.isVisible();
         southPanel.setVisible(visible);
         southPanel.revalidate();
-        
+
         if (visible) {
             ejecutarBtn.setText("⬇ Ocultar Consola");
             if (consoleTextPane != null && consoleTextPane.getText().trim().isEmpty()) {
