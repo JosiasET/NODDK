@@ -72,6 +72,55 @@ public class ArduinoGenerator {
 
                     cpp.append("  _stack.erase(_stack.end() - ").append(numArgs).append(", _stack.end());\n");
                 }
+                // ✅ SOPORTE PARA FUNCIONES DE ARDUINO
+                else if (inst.arg1.equals("pinMode")) {
+                    // pinMode(pin, mode) -> 2 argumentos
+                    cpp.append("  {\n");
+                    cpp.append("    int mode = (int)_stack.back(); _stack.pop_back();\n");
+                    cpp.append("    int pin = (int)_stack.back(); _stack.pop_back();\n");
+                    cpp.append("    pinMode(pin, mode);\n");
+                    cpp.append("  }\n");
+                } else if (inst.arg1.equals("digitalWrite")) {
+                    // digitalWrite(pin, value) -> 2 argumentos
+                    cpp.append("  {\n");
+                    cpp.append("    int val = (int)_stack.back(); _stack.pop_back();\n");
+                    cpp.append("    int pin = (int)_stack.back(); _stack.pop_back();\n");
+                    cpp.append("    digitalWrite(pin, val);\n");
+                    cpp.append("  }\n");
+                } else if (inst.arg1.equals("delay")) {
+                    // delay(ms) -> 1 argumento
+                    cpp.append("  {\n");
+                    cpp.append("    int ms = (int)_stack.back(); _stack.pop_back();\n");
+                    cpp.append("    delay(ms);\n");
+                    cpp.append("  }\n");
+                } else if (inst.arg1.equals("digitalRead")) {
+                    // digitalRead(pin) -> 1 argumento, retorna valor
+                    cpp.append("  {\n");
+                    cpp.append("    int pin = (int)_stack.back(); _stack.pop_back();\n");
+                    cpp.append("    double val = (double)digitalRead(pin);\n");
+                    // Si la instrucción esperase guardar el resultado, deberíamos pushearlo o
+                    // asignarlo
+                    // Pero en TAC, el resultado de 'call' se asigna a inst.result si existe.
+                    // Aquí estamos en un bloque que procesa 'call'.
+                    // El TACGenerator genera: call func args result
+                    // Si func retorna algo, deberíamos ponerlo en _stack o en la variable result
+                    // directamente?
+                    // EL MODELO ACTUAL usa _stack.push_back(val) para retorno?
+                    // Revisemos lógica general de funciones:
+                    // En funciones definidas por usuario: 'ret val' hace push? No, 'ret' asigna a
+                    // variable?
+                    // No hay soporte claro de retorno de funciones en este Generator simple.
+                    // Asumiremos que si hay 'result', asignamos directamente.
+                    // Pero espera, C++ no funciona así linea a linea mezclado con TAC.
+                    // El TAC dice: t0 = call digitalRead 1
+
+                    // Si hay un resultado esperado, asignarlo a la variable correspondiente
+                    if (inst.result != null && !inst.result.isEmpty()) {
+                        cpp.append("    ").append(inst.result).append(" = val;\n");
+                    }
+                    cpp.append("  }\n");
+                }
+
                 continue;
             }
 
@@ -147,6 +196,7 @@ public class ArduinoGenerator {
         cpp.append("  while(1) { delay(100); }\n");
         cpp.append("}\n");
         return cpp.toString();
+
     }
 
     private boolean isLabel(String s) {
