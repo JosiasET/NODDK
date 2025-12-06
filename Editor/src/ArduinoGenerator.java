@@ -14,27 +14,71 @@ public class ArduinoGenerator {
         cpp.append("// Pila de operandos para llamadas a función\n");
         cpp.append("std::vector<double> _stack;\n\n");
 
-        // Variables
-        cpp.append("// Variables Variables\n");
+        // Inferencia de Tipos Básica
+        cpp.append("// Variables Globales\n");
         Set<String> declaredVars = new HashSet<>();
+        Set<String> stringVars = new HashSet<>();
+        Set<String> doubleVars = new HashSet<>();
+
+        // Fase 1: Detectar Variables y Tipos
         for (TACInstruction inst : instructions) {
-            if (inst.result != null && !isLabel(inst.result) && !inst.result.isEmpty()) {
-                declaredVars.add(inst.result);
+
+            // Asignaciones directas STRING: s = "hola"
+            if (inst.op.equals("=")) {
+                if (inst.arg1 != null && inst.arg1.startsWith("\"")) {
+                    stringVars.add(inst.result);
+                    declaredVars.add(inst.result);
+                } else {
+                    // Posiblemente número u otra variable
+                    if (inst.result != null && !inst.result.isEmpty() && !declaredVars.contains(inst.result)) {
+                        doubleVars.add(inst.result);
+                        declaredVars.add(inst.result);
+                    }
+                }
+            }
+
+            // Resultado de Operaciones Matemáticas -> double
+            else if (isMathOp(inst.op)) {
+                if (inst.result != null) {
+                    doubleVars.add(inst.result);
+                    declaredVars.add(inst.result);
+                }
             }
         }
 
-        cpp.append("double ");
-        boolean first = true;
-        for (String var : declaredVars) {
-            if (!first)
-                cpp.append(", ");
-            cpp.append(var);
-            first = false;
+        // Asegurar que si una variable fue marcada como string y double (error raro),
+        // gane String para evitar crash,
+        // o manejar mejor. Por ahora simple:
+        doubleVars.removeAll(stringVars);
+
+        // Declarar Doubles
+        if (!doubleVars.isEmpty()) {
+            cpp.append("double ");
+            boolean first = true;
+            for (String var : doubleVars) {
+                if (!isLabel(var)) { // Ignorar etiquetas como variables
+                    if (!first)
+                        cpp.append(", ");
+                    cpp.append(var);
+                    first = false;
+                }
+            }
+            cpp.append(";\n");
         }
-        if (!declaredVars.isEmpty())
-            cpp.append(";\n\n");
-        else
-            cpp.append("temp_dummy;\n\n");
+
+        // Declarar Strings
+        if (!stringVars.isEmpty()) {
+            cpp.append("String ");
+            boolean first = true;
+            for (String var : stringVars) {
+                if (!first)
+                    cpp.append(", ");
+                cpp.append(var);
+                first = false;
+            }
+            cpp.append(";\n");
+        }
+        cpp.append("\n");
 
         cpp.append("void setup() {\n");
         cpp.append("  Serial.begin(115200);\n");
@@ -201,5 +245,9 @@ public class ArduinoGenerator {
 
     private boolean isLabel(String s) {
         return s.startsWith("L") && s.matches("L\\d+");
+    }
+
+    private boolean isMathOp(String op) {
+        return op.equals("+") || op.equals("-") || op.equals("*") || op.equals("/") || op.equals("%");
     }
 }
