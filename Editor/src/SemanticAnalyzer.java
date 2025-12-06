@@ -77,6 +77,31 @@ public class SemanticAnalyzer {
 
         // Inicializar constantes de Arduino
         initializeArduinoConstants();
+        initializeIntrinsics();
+    }
+
+    private void initializeIntrinsics() {
+        // Definir funciones intrínsecas para validación semántica
+        declareFunction("pinMode", "void");
+        declareFunction("digitalWrite", "void");
+        declareFunction("digitalRead", "int");
+        declareFunction("analogRead", "int");
+        declareFunction("analogWrite", "void");
+        declareFunction("delay", "void");
+        declareFunction("Out", "void");
+        // print y println se manejan como keywords en muchos casos, pero las agregamos
+        // por si acaso
+        declareFunction("print", "void");
+        declareFunction("println", "void");
+    }
+
+    private void declareFunction(String name, String returnType) {
+        VariableInfo funcInfo = new VariableInfo("function", null, 0);
+        // Podríamos extender VariableInfo para guardar returnType, pero por ahora
+        // "function" es suficiente para que exista
+        symbolTable.put(name, funcInfo);
+        // También agregar al scope global actual
+        scopeSymbolTables.get("global").put(name, funcInfo);
     }
 
     private void initializeArduinoConstants() {
