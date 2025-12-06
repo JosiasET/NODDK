@@ -11,8 +11,20 @@ public class ArduinoGenerator {
         cpp.append("// Código generado para ESP32 (Arduino Framework)\n");
         cpp.append("#include <Arduino.h>\n\n");
         cpp.append("#include <vector>\n");
-        cpp.append("// Pila de operandos para llamadas a función\n");
-        cpp.append("std::vector<double> _stack;\n\n");
+
+        // Definir estructura Variant para manejar números y texto en la pila
+        cpp.append("struct Variant {\n");
+        cpp.append("    double numVal;\n");
+        cpp.append("    String strVal;\n");
+        cpp.append("    int type; // 0=num, 1=str\n\n");
+        cpp.append("    Variant(double d) : numVal(d), type(0) {}\n");
+        cpp.append("    Variant(int i) : numVal(i), type(0) {}\n"); // constructor int
+        cpp.append("    Variant(String s) : strVal(s), type(1) { numVal = 0; }\n");
+        cpp.append("    Variant(const char* s) : strVal(s), type(1) { numVal = 0; }\n"); // constructor char*
+        cpp.append("};\n\n");
+
+        cpp.append("// Pila de operandos\n");
+        cpp.append("std::vector<Variant> _stack;\n\n");
 
         // Inferencia de Tipos Básica
         cpp.append("// Variables Globales\n");
@@ -46,9 +58,6 @@ public class ArduinoGenerator {
             }
         }
 
-        // Asegurar que si una variable fue marcada como string y double (error raro),
-        // gane String para evitar crash,
-        // o manejar mejor. Por ahora simple:
         doubleVars.removeAll(stringVars);
 
         // Declarar Doubles
@@ -56,7 +65,7 @@ public class ArduinoGenerator {
             cpp.append("double ");
             boolean first = true;
             for (String var : doubleVars) {
-                if (!isLabel(var)) { // Ignorar etiquetas como variables
+                if (!isLabel(var)) {
                     if (!first)
                         cpp.append(", ");
                     cpp.append(var);
@@ -98,17 +107,21 @@ public class ArduinoGenerator {
 
             // Manejo especial PRINT
             if (inst.op.equals("param")) {
-                cpp.append("_stack.push_back(").append(inst.arg1).append(");\n");
+                // El argumento puede ser numero, string literal o variable
+                // C++ Variant constructor handles overloads
+                cpp.append("_stack.push_back(Variant(").append(inst.arg1).append("));\n");
                 continue;
             }
             if (inst.op.equals("call")) {
                 if (inst.arg1.equals("print") || inst.arg1.equals("println")) {
                     int numArgs = Integer.parseInt(inst.arg2);
                     boolean isLn = inst.arg1.equals("println");
-                    // Extraer argumentos de la pila
-                    // En C++ esto es runtime.
+
                     cpp.append("for(int i=0; i<").append(numArgs).append("; i++) {\n");
-                    cpp.append("    Serial.print(_stack[_stack.size() - ").append(numArgs).append(" + i]);\n");
+                    cpp.append("    Variant v = _stack[_stack.size() - ").append(numArgs).append(" + i];\n");
+                    cpp.append("    if(v.type == 1) Serial.print(v.strVal);\n");
+                    cpp.append("    else Serial.print(v.numVal);\n");
+
                     cpp.append("    if(i < ").append(numArgs - 1).append(") Serial.print(\" \");\n");
                     cpp.append("  }\n");
                     if (isLn)
@@ -116,49 +129,28 @@ public class ArduinoGenerator {
 
                     cpp.append("  _stack.erase(_stack.end() - ").append(numArgs).append(", _stack.end());\n");
                 }
-                // ✅ SOPORTE PARA FUNCIONES DE ARDUINO
+                // ✅ SOPORTE PARA FUNCIONES DE ARDUINO (Adaptado a Variant)
                 else if (inst.arg1.equals("pinMode")) {
-                    // pinMode(pin, mode) -> 2 argumentos
                     cpp.append("  {\n");
-                    cpp.append("    int mode = (int)_stack.back(); _stack.pop_back();\n");
-                    cpp.append("    int pin = (int)_stack.back(); _stack.pop_back();\n");
+                    cpp.append("    int mode = (int)_stack.back().numVal; _stack.pop_back();\n");
+                    cpp.append("    int pin = (int)_stack.back().numVal; _stack.pop_back();\n");
                     cpp.append("    pinMode(pin, mode);\n");
                     cpp.append("  }\n");
                 } else if (inst.arg1.equals("digitalWrite")) {
-                    // digitalWrite(pin, value) -> 2 argumentos
                     cpp.append("  {\n");
-                    cpp.append("    int val = (int)_stack.back(); _stack.pop_back();\n");
-                    cpp.append("    int pin = (int)_stack.back(); _stack.pop_back();\n");
+                    cpp.append("    int val = (int)_stack.back().numVal; _stack.pop_back();\n");
+                    cpp.append("    int pin = (int)_stack.back().numVal; _stack.pop_back();\n");
                     cpp.append("    digitalWrite(pin, val);\n");
                     cpp.append("  }\n");
                 } else if (inst.arg1.equals("delay")) {
-                    // delay(ms) -> 1 argumento
                     cpp.append("  {\n");
-                    cpp.append("    int ms = (int)_stack.back(); _stack.pop_back();\n");
+                    cpp.append("    int ms = (int)_stack.back().numVal; _stack.pop_back();\n");
                     cpp.append("    delay(ms);\n");
                     cpp.append("  }\n");
                 } else if (inst.arg1.equals("digitalRead")) {
-                    // digitalRead(pin) -> 1 argumento, retorna valor
                     cpp.append("  {\n");
-                    cpp.append("    int pin = (int)_stack.back(); _stack.pop_back();\n");
+                    cpp.append("    int pin = (int)_stack.back().numVal; _stack.pop_back();\n");
                     cpp.append("    double val = (double)digitalRead(pin);\n");
-                    // Si la instrucción esperase guardar el resultado, deberíamos pushearlo o
-                    // asignarlo
-                    // Pero en TAC, el resultado de 'call' se asigna a inst.result si existe.
-                    // Aquí estamos en un bloque que procesa 'call'.
-                    // El TACGenerator genera: call func args result
-                    // Si func retorna algo, deberíamos ponerlo en _stack o en la variable result
-                    // directamente?
-                    // EL MODELO ACTUAL usa _stack.push_back(val) para retorno?
-                    // Revisemos lógica general de funciones:
-                    // En funciones definidas por usuario: 'ret val' hace push? No, 'ret' asigna a
-                    // variable?
-                    // No hay soporte claro de retorno de funciones en este Generator simple.
-                    // Asumiremos que si hay 'result', asignamos directamente.
-                    // Pero espera, C++ no funciona así linea a linea mezclado con TAC.
-                    // El TAC dice: t0 = call digitalRead 1
-
-                    // Si hay un resultado esperado, asignarlo a la variable correspondiente
                     if (inst.result != null && !inst.result.isEmpty()) {
                         cpp.append("    ").append(inst.result).append(" = val;\n");
                     }
@@ -168,7 +160,9 @@ public class ArduinoGenerator {
                 continue;
             }
 
-            switch (inst.op) {
+            switch (inst.op)
+
+            {
                 case "=":
                     cpp.append(inst.result).append(" = ").append(inst.arg1).append(";\n");
                     break;
