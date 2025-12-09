@@ -171,20 +171,19 @@ public class TACOptimizer {
             }
 
             // Propagación: Reemplazar usos de variables que sabemos son constantes
-            // FIX: Only propagate constants for temporary variables ('t...')
-            // We preserve user variables (like 'edad') so they appear in the generated C++
-            // code.
             String arg1 = constants.getOrDefault(inst.arg1, inst.arg1);
             String arg2 = constants.getOrDefault(inst.arg2, inst.arg2);
 
             if (!Objects.equals(arg1, inst.arg1)) {
-                if (inst.arg1.matches("t\\d+")) {
+                // Check if we should propagate (optimize) this usage
+                if (canOptimizeUsage(inst, inst.arg1)) {
                     inst.arg1 = arg1;
                     changed = true;
                 }
             }
             if (!Objects.equals(arg2, inst.arg2)) {
-                if (inst.arg2.matches("t\\d+")) {
+                // Check if we should propagate (optimize) this usage
+                if (canOptimizeUsage(inst, inst.arg2)) {
                     inst.arg2 = arg2;
                     changed = true;
                 }
@@ -236,6 +235,11 @@ public class TACOptimizer {
             if (inst.op.equals("IF_FALSE") && inst.arg1 != null) {
                 usages.put(inst.arg1, usages.getOrDefault(inst.arg1, 0) + 1);
             }
+            // Count usages in params to ensure variables passed to functions are not marked
+            // as dead
+            if (inst.op.equals("param") && inst.arg1 != null) {
+                usages.put(inst.arg1, usages.getOrDefault(inst.arg1, 0) + 1);
+            }
         }
 
         boolean changed = false;
@@ -273,15 +277,13 @@ public class TACOptimizer {
 
             // 1. Reemplazar usos
             if (inst.arg1 != null && copies.containsKey(inst.arg1)) {
-                // FIX: Only propagate copies for temporary variables ('t...')
-                if (inst.arg1.matches("t\\d+")) {
+                if (canOptimizeUsage(inst, inst.arg1)) {
                     inst.arg1 = copies.get(inst.arg1);
                     changed = true;
                 }
             }
             if (inst.arg2 != null && copies.containsKey(inst.arg2)) {
-                // FIX: Only propagate copies for temporary variables ('t...')
-                if (inst.arg2.matches("t\\d+")) {
+                if (canOptimizeUsage(inst, inst.arg2)) {
                     inst.arg2 = copies.get(inst.arg2);
                     changed = true;
                 }
@@ -371,6 +373,20 @@ public class TACOptimizer {
     // =========================================================================
     // Helpers
     // =========================================================================
+
+    private boolean canOptimizeUsage(TACInstruction inst, String varName) {
+        // ALWAYS optimize temporary variables
+        if (varName.matches("t\\d+"))
+            return true;
+
+        // For user variables, DO NOT optimize if used in 'param'
+        // This preserves the variable name in the generated code (e.g. print(edad))
+        if (inst.op.equals("param"))
+            return false;
+
+        // Optimize in all other cases (calculations, jumps, etc.)
+        return true;
+    }
 
     private boolean isArithmeticOrRelational(String op) {
         return op.equals("+") || op.equals("-") || op.equals("*") || op.equals("/") ||

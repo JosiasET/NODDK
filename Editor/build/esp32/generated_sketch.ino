@@ -17,7 +17,7 @@ struct Variant {
 std::vector<Variant> _stack;
 
 // Variables Globales
-double t4, t5, t6, t7, t8, contador, t0, edad, t1, t2, t3;
+double t4, t5, t6, t7, t8, contador, t0, edad, t1, t3;
 String nombre;
 
 void setup() {
@@ -48,8 +48,7 @@ void loop() {
   }
   Serial.println();
   _stack.erase(_stack.end() - 2, _stack.end());
-  t2 = (edad >= 18);
-  if (!t2) goto L0;
+  if (!true) goto L0;
   _stack.push_back(Variant("Eres mayor de edad"));
   for(int i=0; i<1; i++) {
     Variant v = _stack[_stack.size() - 1 + i];

@@ -1,17 +1,32 @@
 public class TestOptimizer {
     public static void main(String[] args) {
-        // Test Case 1: Constant Folding (2 + 3 * 4 should become 14)
-        // Test Case 2: Dead Code Elimination (if (false) block should be removed)
-        String code = "println(\"Optimized result: \" + (2 + 3 * 4));\n" +
-                "if (false) {\n" +
-                "    println(\"This should not exist\");\n" +
-                "}";
+        System.out.println("TESTING OPTIMIZER FIXES...");
+
+        // Scenario:
+        // 1. Calculations should be optimized (Constant Folding)
+        // 2. Variables passed to print() should PRESERVE their name (No Constant
+        // Propagation into param)
+
+        String code = "int edad = 22;\n" +
+                "int futuro = edad + 10;\n" +
+                "println(edad);\n" + // Should generate 'param edad', not 'param 22'
+                "println(futuro);"; // Should generate 'param futuro', not 'param 32'
 
         System.out.println("SOURCE CODE:");
         System.out.println(code);
-        System.out.println();
+        System.out.println("--------------------------------------------------");
 
-        CompilationManager manager = new CompilationManager();
-        manager.compile(code);
+        CompilationManager.CompilationResult result = manager.compile(code);
+
+        if (result.hasErrors()) {
+            System.out.println("\nERRORS:");
+            System.out.println(result.getFullReport());
+        } else {
+            System.out.println("\nGENERATED TAC (OPTIMIZED):");
+            System.out.println(result.optimizedTacOutput);
+
+            System.out.println("\nGENERATED ARDUINO CODE:");
+            System.out.println(result.assemblyOutput);
+        }
     }
 }
