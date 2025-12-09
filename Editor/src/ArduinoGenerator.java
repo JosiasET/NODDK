@@ -34,24 +34,22 @@ public class ArduinoGenerator {
 
         // Fase 1: Detectar Variables y Tipos
         for (TACInstruction inst : instructions) {
-
-            // Asignaciones directas STRING: s = "hola"
-            if (inst.op.equals("=")) {
-                if (inst.arg1 != null && inst.arg1.startsWith("\"")) {
-                    stringVars.add(inst.result);
-                    declaredVars.add(inst.result);
-                } else {
-                    // Posiblemente número u otra variable
-                    if (inst.result != null && !inst.result.isEmpty() && !declaredVars.contains(inst.result)) {
-                        doubleVars.add(inst.result);
-                        declaredVars.add(inst.result);
-                    }
-                }
+            // Skip instructions that don't produce a variable result or use result for
+            // labels
+            if (inst.result == null || inst.op.equals("LABEL") || inst.op.equals("GOTO") ||
+                    inst.op.equals("IF_FALSE") || inst.op.equals("param") || inst.op.equals("ret")
+                    || inst.op.equals("return")) {
+                continue;
             }
 
-            // Resultado de Operaciones Matemáticas -> double
-            else if (isMathOp(inst.op)) {
-                if (inst.result != null) {
+            // Asignaciones directas STRING: s = "hola"
+            if (inst.op.equals("=") && inst.arg1 != null && inst.arg1.startsWith("\"")) {
+                stringVars.add(inst.result);
+                declaredVars.add(inst.result);
+            } else {
+                // Cualquier otro resultado (números, booleanos de comparaciones, math, calls)
+                // Se asume double (que maneja int/bool/float en C++)
+                if (!declaredVars.contains(inst.result)) {
                     doubleVars.add(inst.result);
                     declaredVars.add(inst.result);
                 }

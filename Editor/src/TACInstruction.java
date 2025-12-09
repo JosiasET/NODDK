@@ -22,12 +22,31 @@ public class TACInstruction {
         if (op.equals("IF_FALSE")) {
             return "ifFalse " + arg1 + " goto " + result;
         }
+        if (op.equals("ret") || op.equals("return")) {
+            return "ret " + (arg1 != null ? arg1 : "");
+        }
+        if (op.equals("print") || op.equals("println")) {
+            return op + " " + (arg1 != null ? arg1 : "");
+        }
+
+        // Param handling
+        if (op.equals("param")) {
+            return "param " + (arg1 != null ? arg1 : "");
+        }
+
+        String resPart = (result != null) ? result + " = " : "";
+
+        if (op.equals("=")) {
+            // Handle simple assignment: x = y
+            return resPart + (arg1 != null ? arg1 : "");
+        }
+
         if (arg2 != null) {
-            return result + " = " + arg1 + " " + op + " " + arg2;
+            return resPart + arg1 + " " + op + " " + arg2;
         }
         if (arg1 != null) {
-            return result + " = " + op + " " + arg1;
+            return resPart + op + " " + arg1;
         }
-        return result + " = " + op;
+        return resPart + op;
     }
 }

@@ -1,3 +1,4 @@
+
 import java.util.*;
 
 public class TACOptimizer {
@@ -14,23 +15,31 @@ public class TACOptimizer {
             pass++;
 
             // 1. Optimización por Bloques Básicos (Local)
-            // Divide el código en bloques y aplica optimizaciones locales (CSE)
             if (performBlockOptimization(current)) {
                 changed = true;
-                // System.out.println(" Block Opt applied");
             }
 
-            // 2. Constant Folding & Propagation (Global)
+            // 2. Copy Propagation (Nuevo)
+            if (performCopyPropagation(current)) {
+                changed = true;
+            }
+
+            // 3. Constant Folding & Propagation (Global)
             if (performConstantFolding(current)) {
                 changed = true;
             }
 
-            // 3. Dead Code Elimination (Global)
+            // 4. Algebraic Simplification (Nuevo)
+            if (performAlgebraicSimplification(current)) {
+                changed = true;
+            }
+
+            // 5. Dead Code Elimination (Global)
             if (performDeadCodeElimination(current)) {
                 changed = true;
             }
 
-        } while (changed && pass < 10);
+        } while (changed && pass < 15); // Increased pass limit slightly
 
         return current;
     }
@@ -117,18 +126,11 @@ public class TACOptimizer {
 
                 if (availableExprs.containsKey(expr)) {
                     // ✅ CSE: ¡Encontramos subexpresión común!
-                    // Si ya calculamos "a+b" antes y guardamos en "t1",
-                    // y ahora vemos "t2 = a+b", reemplazamos por "t2 = t1"
                     String existingResult = availableExprs.get(expr);
-
-                    // Solo si la variable original sigue viva (no reasignada)
-                    // (La lógica de invalidación abajo se encarga de esto)
-
                     inst.op = "=";
                     inst.arg1 = existingResult;
                     inst.arg2 = null;
                     changed = true;
-                    // System.out.println(" ♻️ CSE: Reemplazado cálculo repetido en bloque");
                 } else {
                     // Nueva expresión disponible
                     availableExprs.put(expr, inst.result);
@@ -136,9 +138,6 @@ public class TACOptimizer {
             }
 
             // INVALIDACIÓN
-            // Si una variable es reasignada, cualquier expresión previa que la usaba ya no
-            // es válida.
-            // Ej: t1 = a + b; a = 5; t2 = a + b; <- No podemos reusar t1 para t2
             if (inst.result != null) {
                 String modifiedVar = inst.result;
                 availableExprs.entrySet().removeIf(entry -> {
@@ -165,14 +164,30 @@ public class TACOptimizer {
         for (int i = 0; i < instructions.size(); i++) {
             TACInstruction inst = instructions.get(i);
 
+            // FIX: Reset knowledge at labels to handle loops/jumps correctly
+            if (inst.op.equals("LABEL")) {
+                constants.clear();
+                continue;
+            }
+
             // Propagación: Reemplazar usos de variables que sabemos son constantes
+            // FIX: Only propagate constants for temporary variables ('t...')
+            // We preserve user variables (like 'edad') so they appear in the generated C++
+            // code.
             String arg1 = constants.getOrDefault(inst.arg1, inst.arg1);
             String arg2 = constants.getOrDefault(inst.arg2, inst.arg2);
 
-            if (!Objects.equals(arg1, inst.arg1) || !Objects.equals(arg2, inst.arg2)) {
-                inst.arg1 = arg1;
-                inst.arg2 = arg2;
-                changed = true;
+            if (!Objects.equals(arg1, inst.arg1)) {
+                if (inst.arg1.matches("t\\d+")) {
+                    inst.arg1 = arg1;
+                    changed = true;
+                }
+            }
+            if (!Objects.equals(arg2, inst.arg2)) {
+                if (inst.arg2.matches("t\\d+")) {
+                    inst.arg2 = arg2;
+                    changed = true;
+                }
             }
 
             // Folding: Evaluar operaciones estáticas
@@ -211,13 +226,15 @@ public class TACOptimizer {
     private boolean performDeadCodeElimination(List<TACInstruction> instructions) {
         Map<String, Integer> usages = new HashMap<>();
 
-        // Contar usos
         for (TACInstruction inst : instructions) {
-            if (inst.arg1 != null && inst.arg1.startsWith("t")) {
+            if (inst.arg1 != null && (inst.arg1.startsWith("t") || !isNumber(inst.arg1))) {
                 usages.put(inst.arg1, usages.getOrDefault(inst.arg1, 0) + 1);
             }
-            if (inst.arg2 != null && inst.arg2.startsWith("t")) {
+            if (inst.arg2 != null && (inst.arg2.startsWith("t") || !isNumber(inst.arg2))) {
                 usages.put(inst.arg2, usages.getOrDefault(inst.arg2, 0) + 1);
+            }
+            if (inst.op.equals("IF_FALSE") && inst.arg1 != null) {
+                usages.put(inst.arg1, usages.getOrDefault(inst.arg1, 0) + 1);
             }
         }
 
@@ -225,12 +242,125 @@ public class TACOptimizer {
         Iterator<TACInstruction> it = instructions.iterator();
         while (it.hasNext()) {
             TACInstruction inst = it.next();
-            // Eliminar asignaciones a temporales ('t...') que nunca se usan
             if ((inst.op.equals("=") || isArithmeticOrRelational(inst.op)) &&
                     inst.result != null && inst.result.startsWith("t")) {
 
                 if (!usages.containsKey(inst.result)) {
                     it.remove();
+                    changed = true;
+                }
+            }
+        }
+        return changed;
+    }
+
+    // =========================================================================
+    // 4. COPY PROPAGATION (Global)
+    // =========================================================================
+
+    private boolean performCopyPropagation(List<TACInstruction> instructions) {
+        boolean changed = false;
+        Map<String, String> copies = new HashMap<>();
+
+        for (int i = 0; i < instructions.size(); i++) {
+            TACInstruction inst = instructions.get(i);
+
+            // FIX: Reset knowledge at labels to handle loops/jumps correctly
+            if (inst.op.equals("LABEL")) {
+                copies.clear();
+                continue;
+            }
+
+            // 1. Reemplazar usos
+            if (inst.arg1 != null && copies.containsKey(inst.arg1)) {
+                // FIX: Only propagate copies for temporary variables ('t...')
+                if (inst.arg1.matches("t\\d+")) {
+                    inst.arg1 = copies.get(inst.arg1);
+                    changed = true;
+                }
+            }
+            if (inst.arg2 != null && copies.containsKey(inst.arg2)) {
+                // FIX: Only propagate copies for temporary variables ('t...')
+                if (inst.arg2.matches("t\\d+")) {
+                    inst.arg2 = copies.get(inst.arg2);
+                    changed = true;
+                }
+            }
+
+            // 2. Definir copias (t1 = y)
+            if (inst.op.equals("=") && inst.result != null && inst.arg1 != null) {
+                if (!inst.result.equals(inst.arg1)) {
+                    copies.put(inst.result, inst.arg1);
+                }
+            }
+            // Si definimos via operación, invalida la copia anterior de 'result'
+            else if (inst.result != null) {
+                copies.remove(inst.result);
+            }
+
+            // 3. Invalidar dependencias
+            if (inst.result != null) {
+                String definedVar = inst.result;
+                Iterator<Map.Entry<String, String>> it = copies.entrySet().iterator();
+                while (it.hasNext()) {
+                    Map.Entry<String, String> entry = it.next();
+                    if (entry.getValue().equals(definedVar)) {
+                        it.remove();
+                    }
+                }
+            }
+        }
+        return changed;
+    }
+
+    // =========================================================================
+    // 5. ALGEBRAIC SIMPLIFICATION (Global)
+    // =========================================================================
+
+    private boolean performAlgebraicSimplification(List<TACInstruction> instructions) {
+        boolean changed = false;
+        for (TACInstruction inst : instructions) {
+            if (inst.result == null)
+                continue;
+
+            if (inst.op.equals("+")) {
+                if (inst.arg2 != null && (inst.arg2.equals("0") || inst.arg2.equals("0.0"))) {
+                    inst.op = "=";
+                    inst.arg2 = null;
+                    changed = true;
+                } else if (inst.arg1 != null && (inst.arg1.equals("0") || inst.arg1.equals("0.0"))) {
+                    inst.op = "=";
+                    inst.arg1 = inst.arg2;
+                    inst.arg2 = null;
+                    changed = true;
+                }
+            } else if (inst.op.equals("*")) {
+                if (inst.arg2 != null && (inst.arg2.equals("1") || inst.arg2.equals("1.0"))) {
+                    inst.op = "=";
+                    inst.arg2 = null;
+                    changed = true;
+                } else if (inst.arg1 != null && (inst.arg1.equals("1") || inst.arg1.equals("1.0"))) {
+                    inst.op = "=";
+                    inst.arg1 = inst.arg2;
+                    inst.arg2 = null;
+                    changed = true;
+                } else if ((inst.arg2 != null && (inst.arg2.equals("0") || inst.arg2.equals("0.0"))) ||
+                        (inst.arg1 != null && (inst.arg1.equals("0") || inst.arg1.equals("0.0")))) {
+                    inst.op = "=";
+                    inst.arg1 = "0";
+                    inst.arg2 = null;
+                    changed = true;
+                }
+            } else if (inst.op.equals("-")) {
+                if (inst.arg2 != null && (inst.arg2.equals("0") || inst.arg2.equals("0.0"))) {
+                    inst.op = "=";
+                    inst.arg2 = null;
+                    changed = true;
+                }
+            } else if (inst.op.equals("/")) {
+                if (inst.arg2 != null && (inst.arg2.equals("1") || inst.arg2.equals("1.0"))) {
+                    inst.op = "=";
+                    inst.arg2 = null;
                     changed = true;
                 }
             }

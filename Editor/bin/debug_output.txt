@@ -1,0 +1,7 @@
+i = 0
+L1:
+ifFalse true goto L2
+print 0
+i = 1
+goto L1
+L2:
